@@ -187,6 +187,16 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
                         <span class="badge badge-err"><?= $e($role_name) ?></span>
                     <?php endforeach; ?>
                 </div>
+                <div style="margin-top:12px;">
+                    <button type="button" class="btn btn-primary btn-sm" id="im-grant">
+                        Liberar o modulo em todas as roles
+                    </button>
+                    <span class="form-hint" style="margin-left:10px;">
+                        Marca apenas <em>Access to modules &rarr; Impersonate</em>. Nenhuma outra permissao da role e
+                        tocada, e liberar o modulo nao da poder algum ao usuario comum &mdash; todas as telas exigem
+                        Super Admin.
+                    </span>
+                </div>
             </div>
         </div>
     </div>
@@ -455,6 +465,64 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
     document.getElementById('im-modal-dismiss').addEventListener('click', closeModal);
     modal.addEventListener('click', function (ev) { if (ev.target === modal) { closeModal(); } });
     document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { closeModal(); } });
+
+    var grantBtn = document.getElementById('im-grant');
+
+    if (grantBtn) {
+        grantBtn.addEventListener('click', function () {
+            if (!window.confirm(
+                'Liberar o modulo Impersonate em todas as roles que ainda nao o enxergam?\n\n' +
+                'Isso marca APENAS "Access to modules -> Impersonate". Nenhuma outra permissao ' +
+                'da role e alterada.\n\n' +
+                'Sem esse acesso o Zabbix nao carrega o modulo durante a impersonacao, e o modo ' +
+                'somente-leitura e o botao de sair deixam de existir.'
+            )) {
+                return;
+            }
+
+            grantBtn.disabled = true;
+            grantBtn.textContent = 'Liberando...';
+
+            post('zbx.impersonate.grant', { submit_action: 'grant' })
+                .then(function (res) {
+                    if (res && res.error && res.error.title) {
+                        showStatus(res.error.title, false);
+                        return;
+                    }
+
+                    if (!res || !res.success) {
+                        showStatus((res && res.error) || 'Falha ao liberar o modulo.', false);
+                        return;
+                    }
+
+                    var parts = [];
+
+                    if (res.granted.length) {
+                        parts.push(res.granted.length + ' role(s) liberada(s): ' + res.granted.join(', '));
+                    }
+                    if (res.already) {
+                        parts.push(res.already + ' ja tinha(m) acesso');
+                    }
+                    if (res.readonly.length) {
+                        parts.push('ignorada(s) por serem readonly: ' + res.readonly.join(', '));
+                    }
+                    if (res.failed.length) {
+                        parts.push('FALHOU em: ' + res.failed.join('; '));
+                    }
+
+                    showStatus(parts.join(' · ') || 'Nada a fazer.', res.failed.length === 0);
+
+                    if (res.granted.length) {
+                        window.setTimeout(function () { window.location.reload(); }, 1800);
+                    }
+                })
+                .catch(function (err) { showStatus('Erro de rede: ' + err, false); })
+                .finally(function () {
+                    grantBtn.disabled = false;
+                    grantBtn.textContent = 'Liberar o modulo em todas as roles';
+                });
+        });
+    }
 
     document.addEventListener('click', function (ev) {
         var profileBtn = ev.target.closest('[data-profile]');

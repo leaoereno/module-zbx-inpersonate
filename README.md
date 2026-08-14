@@ -198,6 +198,32 @@ módulo é sempre assim.
 Alvos bloqueados aparecem na lista com o motivo em vez do botão — *Super Admin (bloqueado por
 política)*, *GUI access desabilitado*, *Role sem acesso ao módulo Impersonate*, etc.
 
+### Liberando o módulo nas roles
+
+Se as roles do ambiente têm "Access to modules" configurado explicitamente, o módulo novo entra
+como **negado** e praticamente todo mundo aparece bloqueado. Um alerta no topo da lista mostra
+quais roles precisam do toggle e oferece um botão que resolve tudo de uma vez.
+
+O botão chama `role.update` passando **apenas** `rules.modules`. Isso é seguro por construção:
+`CRole::updateRules()` faz `$role['rules'] + $old_rules` — união de arrays com precedência à
+esquerda — alimentado por um `get` interno com as 15 chaves de `selectRules`. As chaves que você
+não envia vêm do banco intactas, e módulos não citados no array mantêm o status atual pelo
+`elseif` de `compileModulesRules()`. Nem `ui`, nem `api`, nem `actions` são tocados.
+
+Reenviar o objeto `rules` inteiro seria **pior**: exporia a validação de `api`, que é mais
+estrita que a gravação e recusa métodos herdados de versões antigas que o `compile` apenas
+ignoraria.
+
+Roles com `readonly = 1` (a *Super admin role* de fábrica) são puladas — `CRole::checkReadonly()`
+recusa qualquer update nelas, e usuários Super Admin já são bloqueados como alvo de qualquer
+forma.
+
+**Liberar o módulo não dá poder nenhum ao usuário comum.** Todas as telas (`list`, `profile`,
+`start`, `log`) exigem Super Admin em `checkPermissions()`, o item de menu só é adicionado para
+Super Admin, e `stop` só faz algo com um estado de impersonação assinado e válido. O acesso
+existe unicamente para que o `CModuleManager` carregue o `Module.php` durante a impersonação —
+sem isso o guard de somente-leitura, o banner e o botão de sair simplesmente não existiriam.
+
 ---
 
 ## Estrutura
@@ -211,7 +237,8 @@ module-zbx-inpersonate/
 │   ├── ImpersonateProfile.php        # zbx.impersonate.profile   layout.json
 │   ├── ImpersonateStart.php          # zbx.impersonate.start     layout.json
 │   ├── ImpersonateStop.php           # zbx.impersonate.stop      layout.htmlpage (redirect)
-│   └── ImpersonateLog.php            # zbx.impersonate.log       layout.htmlpage
+│   ├── ImpersonateLog.php            # zbx.impersonate.log       layout.htmlpage
+│   └── ImpersonateGrant.php          # zbx.impersonate.grant     layout.json
 ├── helper/
 │   └── ImpersonateHelper.php         # troca de sessão, políticas, auditoria, schema
 ├── views/
@@ -219,7 +246,8 @@ module-zbx-inpersonate/
 │   ├── zbx.impersonate.profile.php   # echo json_encode(...)
 │   ├── zbx.impersonate.start.php     # echo json_encode(...)
 │   ├── zbx.impersonate.stop.php      # fallback quando a sessão original morreu
-│   └── zbx.impersonate.log.php
+│   ├── zbx.impersonate.log.php
+│   └── zbx.impersonate.grant.php     # echo json_encode(...)
 ├── sql/role_rule.sql                 # diagnóstico (só SELECTs) + desinstalação
 ├── install.sh
 └── README.md
@@ -294,10 +322,16 @@ sintoma clássico é `checkPermissions()` consultando coluna inexistente. Este m
 diagnóstico em `sql/role_rule.sql` (bloco 2) e confira se a role enxerga o módulo.
 
 **"Role sem acesso ao módulo Impersonate" na lista de usuários**
-A role do alvo não tem o módulo liberado. Vá em **Users → User roles → \<role\> → Access to
-modules** e marque *Impersonate*. Não insira `role_rule` na mão: o Zabbix aloca `role_ruleid`
-pela tabela `ids` (`DB::reserveIds`), e um `INSERT` com `MAX(role_ruleid)+1` deixa o contador
-defasado — a próxima edição de role pela UI quebra com chave primária duplicada.
+A role do alvo não tem o módulo liberado — típico em ambientes onde as roles foram configuradas
+com "Access to modules" explícito antes deste módulo existir, então ele entra como negado.
+
+Use o botão **Liberar o módulo em todas as roles** que aparece no alerta vermelho no topo da
+lista (ver seção abaixo), ou faça manualmente em **Users → User roles → \<role\> → Access to
+modules**.
+
+Não insira `role_rule` na mão: o Zabbix aloca `role_ruleid` pela tabela `ids`
+(`DB::reserveIds`), e um `INSERT` com `MAX(role_ruleid)+1` deixa o contador defasado — a próxima
+edição de role pela UI quebra com chave primária duplicada.
 
 **"Não foi possível criar/acessar a tabela de auditoria"**
 O usuário de banco em `zabbix.conf.php` não tem `CREATE`/`ALTER`. Crie a tabela manualmente com

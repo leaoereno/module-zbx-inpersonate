@@ -405,6 +405,117 @@ class ImpersonateHelper {
 			|| (int) $rules['modules.default_access'] === 1;
 	}
 
+	/**
+	 * Concede acesso a este modulo em todas as roles que ainda nao o tem.
+	 *
+	 * Sem isso o modulo e inutil num ambiente com roles configuradas a mao: o
+	 * modulo novo entra como negado e nenhum usuario dessas roles pode ser
+	 * impersonado.
+	 *
+	 * Liberar o modulo NAO da poder nenhum ao usuario comum - list, profile,
+	 * start e log exigem Super Admin em checkPermissions(), o item de menu so
+	 * aparece para Super Admin, e stop so funciona com estado assinado valido.
+	 * O acesso existe unicamente para que o CModuleManager carregue o Module.php
+	 * durante a impersonacao, mantendo vivos o guard de somente-leitura, o
+	 * banner e o botao de sair.
+	 *
+	 * SEGURANCA DO UPDATE (confirmado em CRole.php da branch release/7.0):
+	 * enviar apenas ['roleid' => X, 'rules' => ['modules' => [...]]] preserva
+	 * todas as outras regras. CRole::updateRules() faz `$role['rules'] + $old_rules`
+	 * - uniao de arrays com precedencia a esquerda - e o $old_rules vem de um
+	 * get() interno com as 15 chaves de selectRules. Modulos nao citados no array
+	 * mantem o status atual pelo elseif de compileModulesRules(). Reenviar o objeto
+	 * `rules` inteiro seria PIOR: exporia a validacao estrita de `api`, que recusa
+	 * metodos herdados de versoes antigas que a gravacao apenas ignoraria.
+	 *
+	 * @return array  ['granted'=>string[], 'already'=>int, 'readonly'=>string[], 'failed'=>string[], 'error'=>string]
+	 */
+	public static function grantModuleAccessToAllRoles(string $moduleid): array {
+		$out = ['granted' => [], 'already' => 0, 'readonly' => [], 'failed' => [], 'error' => ''];
+
+		if ($moduleid === '') {
+			$out['error'] = _('Modulo sem moduleid - o modulo esta habilitado em Administration -> Modules?');
+
+			return $out;
+		}
+
+		try {
+			$roles = \API::Role()->get([
+				'output'      => ['roleid', 'name', 'readonly'],
+				'selectRules' => ['modules'],
+				'sortfield'   => 'name'
+			]);
+		}
+		catch (\Throwable $e) {
+			$out['error'] = _s('Falha ao consultar as roles: %1$s', $e->getMessage());
+
+			return $out;
+		}
+
+		if (!is_array($roles) || !$roles) {
+			$out['error'] = _('Nenhuma role retornada pela API.');
+
+			return $out;
+		}
+
+		foreach ($roles as $role) {
+			$name = (string) $role['name'];
+			$has_access = false;
+
+			if (array_key_exists('rules', $role) && array_key_exists('modules', $role['rules'])) {
+				foreach ($role['rules']['modules'] as $module) {
+					// Comparacao frouxa de proposito: o get() devolve moduleid como int
+					// e status como string.
+					if ((string) $module['moduleid'] === $moduleid) {
+						$has_access = ((int) $module['status'] === 1);
+						break;
+					}
+				}
+			}
+
+			if ($has_access) {
+				$out['already']++;
+				continue;
+			}
+
+			// CRole::checkReadonly() recusa QUALQUER update em role readonly, mesmo
+			// so de nome. Na pratica e a "Super admin role" (roleid 3) - e usuarios
+			// Super Admin ja sao bloqueados como alvo pela politica do modulo.
+			if ((int) $role['readonly'] === 1) {
+				$out['readonly'][] = $name;
+				continue;
+			}
+
+			try {
+				$result = \API::Role()->update([
+					'roleid' => $role['roleid'],
+					'rules'  => [
+						'modules' => [
+							['moduleid' => $moduleid, 'status' => 1]
+						]
+					]
+				]);
+			}
+			catch (\Throwable $e) {
+				$out['failed'][] = $name.' ('.$e->getMessage().')';
+				continue;
+			}
+
+			// O wrapper de frontend nao lanca excecao: empilha a mensagem e retorna false.
+			if ($result === false) {
+				$messages = \CMessageHelper::getMessages();
+				$detail = $messages ? (string) end($messages)['message'] : _('erro desconhecido');
+
+				$out['failed'][] = $name.' ('.$detail.')';
+				continue;
+			}
+
+			$out['granted'][] = $name;
+		}
+
+		return $out;
+	}
+
 	// -----------------------------------------------------------------------
 	// Start / Stop
 	// -----------------------------------------------------------------------
