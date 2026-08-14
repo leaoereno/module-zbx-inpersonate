@@ -42,6 +42,9 @@ $readonly = (int) $data['config']['readonly'] === 1;
 .im-wrap { padding:16px 18px; }
 .im-title { font-size:19px; font-weight:800; color:var(--c-text); margin-bottom:4px; }
 .im-sub { font-size:12px; color:var(--c-muted); margin-bottom:16px; }
+.im-build { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:10px;
+    background:#f1f5f9; color:#64748b; font-size:10px; font-weight:700;
+    font-family:'JetBrains Mono','Courier New',monospace; letter-spacing:.3px; }
 
 .im-callout { display:flex; gap:12px; align-items:flex-start; background:var(--c-warn-bg);
     border:1px solid var(--c-warn-border); border-radius:10px; padding:12px 16px; margin-bottom:16px; }
@@ -148,7 +151,12 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
 
 <div class="im-wrap">
     <div class="im-title">🎭 Impersonate</div>
-    <div class="im-sub">Assuma a sessao de um usuario do Zabbix para reproduzir exatamente o que ele ve.</div>
+    <div class="im-sub">
+        Assuma a sessao de um usuario do Zabbix para reproduzir exatamente o que ele ve.
+        <span class="im-build">
+            v<?= $e($data['config']['version']) ?> &middot; servido por <?= $e($data['config']['hostname']) ?>
+        </span>
+    </div>
 
     <div id="im-status" class="status-msg"></div>
 
@@ -179,7 +187,7 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
                 <code>Module.php</code> durante a impersonacao: o modo somente-leitura e o item
                 <em>Sair da impersonacao</em> deixariam de existir. Por isso o modulo recusa.
                 <div style="margin-top:8px;">
-                    Libere em <strong>Users &rarr; User roles &rarr; \<role\> &rarr; Access to modules</strong>, marcando
+                    Libere em <strong>Users &rarr; User roles &rarr; &lt;role&gt; &rarr; Access to modules</strong>, marcando
                     <em>Impersonate</em> nestas roles:
                 </div>
                 <div class="im-chiplist" style="margin-top:8px;">

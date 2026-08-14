@@ -117,6 +117,7 @@ class ImpersonateList extends CController {
 		$block_sa = 1;
 		$require_access = 1;
 		$moduleid = '';
+		$version = '?';
 
 		if ($module !== null) {
 			$ttl = (int) $module->getOption('session_ttl', ImpersonateHelper::DEFAULT_TTL);
@@ -124,6 +125,7 @@ class ImpersonateList extends CController {
 			$block_sa = (int) $module->getOption('block_super_admin_target', 1);
 			$require_access = (int) $module->getOption('require_module_access', 1);
 			$moduleid = $module->getModuleId();
+			$version = $module->getVersion();
 		}
 
 		return [
@@ -131,7 +133,11 @@ class ImpersonateList extends CController {
 			'readonly'                 => $readonly,
 			'block_super_admin_target' => $block_sa,
 			'require_module_access'    => $require_access,
-			'moduleid'                 => $moduleid
+			'moduleid'                 => $moduleid,
+			'version'                  => $version,
+			// Atras do F5 os dois frontends respondem alternadamente. Sem saber QUAL
+			// no serviu a pagina, "atualizei e nao mudou nada" vira caca ao fantasma.
+			'hostname'                 => (string) gethostname()
 		];
 	}
 
