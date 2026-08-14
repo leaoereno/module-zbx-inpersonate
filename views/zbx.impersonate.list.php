@@ -45,6 +45,7 @@ $readonly = (int) $data['config']['readonly'] === 1;
 
 .im-callout { display:flex; gap:12px; align-items:flex-start; background:var(--c-warn-bg);
     border:1px solid var(--c-warn-border); border-radius:10px; padding:12px 16px; margin-bottom:16px; }
+.im-callout-danger { background:var(--c-danger-bg); border-color:var(--c-danger-border); }
 .im-callout-icon { font-size:20px; line-height:1.2; }
 .im-callout-title { font-size:13px; font-weight:700; color:var(--c-warn); margin-bottom:4px; }
 .im-callout-body { font-size:12px; color:var(--c-text); line-height:1.55; }
@@ -165,6 +166,31 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
             </div>
         </div>
     </div>
+
+    <?php if ($data['roles_missing_access']): ?>
+    <div class="im-callout im-callout-danger">
+        <div class="im-callout-icon">🔒</div>
+        <div>
+            <div class="im-callout-title" style="color:var(--c-danger);">
+                <?= count($data['roles_missing_access']) ?> role(s) sem acesso ao modulo &mdash; usuarios delas nao podem ser impersonados
+            </div>
+            <div class="im-callout-body">
+                Se a role do usuario alvo nao enxerga este modulo, o Zabbix nem carrega o
+                <code>Module.php</code> durante a impersonacao: o modo somente-leitura e o item
+                <em>Sair da impersonacao</em> deixariam de existir. Por isso o modulo recusa.
+                <div style="margin-top:8px;">
+                    Libere em <strong>Users &rarr; User roles &rarr; \<role\> &rarr; Access to modules</strong>, marcando
+                    <em>Impersonate</em> nestas roles:
+                </div>
+                <div class="im-chiplist" style="margin-top:8px;">
+                    <?php foreach ($data['roles_missing_access'] as $role_name): ?>
+                        <span class="badge badge-err"><?= $e($role_name) ?></span>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <div class="im-stats">
         <div class="im-stat">

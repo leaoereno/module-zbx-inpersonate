@@ -308,6 +308,17 @@ Fallbacks, em ordem: (1) item **Sair da impersonação** no topo do menu; (2) UR
 `zabbix.php?action=zbx.impersonate.stop`; (3) esperar o `session_ttl` expirar; (4) logout normal
 e login de novo com a conta de Super Admin.
 
+**O menu aparece como uma seção solta no fim da sidebar, em vez de dentro de Usuários**
+`CMenu::find()` compara pelo **rótulo visível**, e o `CMenuHelper` monta a seção nativa com
+`_('Users')` — que num frontend em pt-BR é "Usuários". Procurar pela string crua `'Users'` não
+casa, e o `findOrAdd()` acaba criando uma seção nova. Corrigido em 1.0.1 usando `_('Users')`,
+com fallback para os rótulos conhecidos.
+
+**Erro de sintaxe SQL no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`**
+`ADD COLUMN IF NOT EXISTS` é extensão do MariaDB e não existe no MySQL. Como `\DBexecute()`
+dispara `trigger_error()`, o erro vira banner vermelho no topo da tela. Corrigido em 1.0.1
+consultando `information_schema.COLUMNS` antes de alterar.
+
 **Alterações no código não refletem**
 OPcache. `systemctl restart php-fpm` — em **todos** os frontends atrás do F5.
 

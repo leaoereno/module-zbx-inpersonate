@@ -129,7 +129,10 @@ class Module extends CModule {
 
 		$label = sprintf('Sair da impersonacao (%s)', (string) $state['target_username']);
 
-		$menu->insertBefore('Dashboards',
+		// _('Dashboards') e nao a string crua: o rotulo do menu nativo vem traduzido
+		// para o idioma do usuario. Se nao casar, insertBefore() cai na posicao 0,
+		// que tambem e o topo - entao o item aparece no lugar certo de qualquer jeito.
+		$menu->insertBefore(_('Dashboards'),
 			(new CMenuItem($label))
 				->setAction('zbx.impersonate.stop')
 				->setIcon('zi-user')
@@ -139,15 +142,39 @@ class Module extends CModule {
 
 	/**
 	 * Menu normal do Super Admin (sem impersonacao ativa).
+	 *
+	 * O item entra dentro da secao nativa de usuarios do Zabbix.
 	 */
 	private function addSuperAdminMenu(): void {
 		if (\CWebUser::getType() != USER_TYPE_SUPER_ADMIN) {
 			return;
 		}
 
-		$submenu = \APP::Component()->get('menu.main')
-			->findOrAdd('Users')
-			->getSubMenu();
+		$menu = \APP::Component()->get('menu.main');
+
+		// CMenu::find() compara pelo ROTULO VISIVEL, e o CMenuHelper monta a secao
+		// nativa com _('Users') - ou seja, "Usuarios" num frontend em pt-BR.
+		// Procurar pela string crua 'Users' nao casa e o findOrAdd() acabaria
+		// criando uma secao nova solta no fim da sidebar.
+		$section = $menu->find(_('Users'));
+
+		if ($section === null) {
+			// Fallback para instalacoes em que o idioma da sessao nao bate com o
+			// rotulo ja renderizado (ex.: usuario com lang diferente do default).
+			foreach (['Users', 'Usuários', 'Usuarios'] as $label) {
+				$section = $menu->find($label);
+
+				if ($section !== null) {
+					break;
+				}
+			}
+		}
+
+		if ($section === null) {
+			$section = $menu->findOrAdd(_('Users'));
+		}
+
+		$submenu = $section->getSubMenu();
 
 		$submenu->add((new CMenuItem('Impersonate'))->setAction('zbx.impersonate.list'));
 		$submenu->add((new CMenuItem('Impersonate log'))->setAction('zbx.impersonate.log'));

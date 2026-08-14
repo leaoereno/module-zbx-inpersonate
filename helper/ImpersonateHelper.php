@@ -111,12 +111,26 @@ class ImpersonateHelper {
 			return false;
 		}
 
-		// Upgrade de instalacoes 1.0.0 anteriores a coluna origin_sessionid.
-		// MariaDB 10.2+ aceita IF NOT EXISTS aqui; se falhar, o SELECT abaixo denuncia.
-		\DBexecute(
-			'ALTER TABLE '.self::LOG_TABLE.' ADD COLUMN IF NOT EXISTS'.
-			' origin_sessionid VARCHAR(32) NOT NULL DEFAULT \'\' AFTER target_username'
-		);
+		// Upgrade de instalacoes anteriores a coluna origin_sessionid.
+		//
+		// NAO usar "ADD COLUMN IF NOT EXISTS": isso e extensao do MariaDB e explode
+		// com erro de sintaxe no MySQL - e o \DBexecute() dispara trigger_error(),
+		// que o Zabbix mostra como banner vermelho no topo da tela. Checar antes
+		// pelo information_schema funciona nos dois.
+		$has_column = \DBfetch(\DBselect(
+			'SELECT COLUMN_NAME'.
+			' FROM information_schema.COLUMNS'.
+			' WHERE TABLE_SCHEMA=DATABASE()'.
+				' AND TABLE_NAME='.\zbx_dbstr(self::LOG_TABLE).
+				' AND COLUMN_NAME='.\zbx_dbstr('origin_sessionid')
+		));
+
+		if (!$has_column) {
+			\DBexecute(
+				'ALTER TABLE '.self::LOG_TABLE.
+				' ADD COLUMN origin_sessionid VARCHAR(32) NOT NULL DEFAULT \'\' AFTER target_username'
+			);
+		}
 
 		// Le de verdade: cobre o caso de tabela existente porem inacessivel/incompativel.
 		self::$schema_ok = \DBselect('SELECT origin_sessionid FROM '.self::LOG_TABLE, 1) !== false;

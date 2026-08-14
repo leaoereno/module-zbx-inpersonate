@@ -71,10 +71,12 @@ class ImpersonateList extends CController {
 			$users[$row['userid']] = $row;
 		}
 
+		$roles_missing_access = [];
+
 		if ($users) {
 			$this->attachGroups($users);
 			$this->attachLastAccess($users);
-			$this->applyPolicy($users, $self_userid, $config);
+			$this->applyPolicy($users, $self_userid, $config, $roles_missing_access);
 		}
 
 		$stats = [
@@ -92,13 +94,16 @@ class ImpersonateList extends CController {
 			}
 		}
 
+		sort($roles_missing_access);
+
 		$this->setResponse(new CControllerResponseData([
-			'users'     => array_values($users),
-			'search'    => $search,
-			'show_type' => $show_type,
-			'stats'     => $stats,
-			'config'    => $config,
-			'recent'    => ImpersonateHelper::getLog(10)
+			'users'                => array_values($users),
+			'search'               => $search,
+			'show_type'            => $show_type,
+			'stats'                => $stats,
+			'config'               => $config,
+			'roles_missing_access' => $roles_missing_access,
+			'recent'               => ImpersonateHelper::getLog(10)
 		]));
 	}
 
@@ -179,7 +184,12 @@ class ImpersonateList extends CController {
 	 * Aplica as travas do modulo linha a linha, para a tela ja mostrar o motivo
 	 * do bloqueio em vez de deixar o usuario descobrir clicando.
 	 */
-	private function applyPolicy(array &$users, int $self_userid, array $config): void {
+	private function applyPolicy(array &$users, int $self_userid, array $config,
+			array &$roles_missing_access): void {
+
+		// Cache por roleid: sem isso seria uma chamada de API por usuario listado.
+		$module_access = [];
+
 		foreach ($users as $userid => $user) {
 			$reason = '';
 
@@ -201,9 +211,17 @@ class ImpersonateList extends CController {
 			elseif ($user['disabled']) {
 				$reason = 'Usuario desabilitado';
 			}
-			elseif ($config['require_module_access'] == 1 && $config['moduleid'] !== ''
-					&& !ImpersonateHelper::roleHasModuleAccess((string) $user['roleid'], $config['moduleid'])) {
-				$reason = 'Role sem acesso ao modulo Impersonate';
+			elseif ($config['require_module_access'] == 1 && $config['moduleid'] !== '') {
+				$roleid = (string) $user['roleid'];
+
+				if (!array_key_exists($roleid, $module_access)) {
+					$module_access[$roleid] = ImpersonateHelper::roleHasModuleAccess($roleid, $config['moduleid']);
+				}
+
+				if (!$module_access[$roleid]) {
+					$reason = 'Role sem acesso ao modulo Impersonate';
+					$roles_missing_access[(string) $user['role_name']] = true;
+				}
 			}
 
 			if ($reason !== '') {
@@ -211,5 +229,7 @@ class ImpersonateList extends CController {
 				$users[$userid]['block_reason'] = $reason;
 			}
 		}
+
+		$roles_missing_access = array_keys($roles_missing_access);
 	}
 }
