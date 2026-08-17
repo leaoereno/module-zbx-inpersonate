@@ -1,10 +1,22 @@
 <?php declare(strict_types=1);
 /**
- * Impersonate - fallback quando a sessão original já não existe mais.
+ * Impersonate - view do stop.
  *
- * O caminho feliz do stop responde com CControllerResponseRedirect e esta view
- * nunca chega a renderizar. Ela so aparece quando a sessão do Super Admin
- * expirou/foi derrubada enquanto a impersonação estava ativa.
+ * ATENÇÃO: a partir da 1.2.0 esta view NÃO é mais renderizada. Todos os desfechos
+ * do stop respondem com CControllerResponseRedirect:
+ *
+ *   - restaurou    -> zbx.impersonate.list
+ *   - não restaurou -> index.php?reconnect=1 (login)
+ *
+ * O motivo: quando não há sessão de origem para restaurar, o stop() é obrigado a
+ * fazer CSessionHelper::unset(['sessionid']) — senão o Super Admin continuaria
+ * logado como o usuário alvo, sem estado de impersonação, numa troca silenciosa
+ * de privilégio. E renderizar um layout.htmlpage completo depois de derrubar a
+ * sessão é pedir fatal no frontend.
+ *
+ * O arquivo é mantido porque a chave "view" da action no manifest.json precisa
+ * apontar para um arquivo existente — sem ela o ZBase pula a renderização de
+ * propósito e o sintoma é uma página em branco, sem nada no log.
  *
  * @var CView $this
  * @var array $data

@@ -13,7 +13,6 @@ namespace Modules\ZbxImpersonate\Actions;
 
 use CController;
 use CControllerResponseRedirect;
-use CControllerResponseData;
 use Modules\ZbxImpersonate\Helper\ImpersonateHelper;
 
 class ImpersonateStop extends CController {
@@ -32,7 +31,31 @@ class ImpersonateStop extends CController {
 		return (int) \CWebUser::$data['userid'] > 0;
 	}
 
+	/**
+	 * A saida NUNCA pode falhar em aberto.
+	 *
+	 * Se qualquer coisa explodir aqui, o Super Admin fica preso na sessao do
+	 * usuario alvo - sem tela de saida e, se o modo somente-leitura estiver
+	 * ativo, sem poder fazer nada ate o autologout do Zabbix. Por isso o corpo
+	 * inteiro roda dentro de um try: no pior caso o estado e limpo, a sessao e
+	 * derrubada e o navegador vai para o login.
+	 */
 	protected function doAction(): void {
+		try {
+			$this->stopImpersonation();
+		}
+		catch (\Throwable $e) {
+			ImpersonateHelper::debug(sprintf('stop FALHOU: %s @ %s:%d',
+				$e->getMessage(), $e->getFile(), $e->getLine()
+			));
+
+			$this->bailOutToLogin();
+		}
+	}
+
+	// -----------------------------------------------------------------------
+
+	private function stopImpersonation(): void {
 		$state = ImpersonateHelper::getState();
 
 		if ($state === null) {
@@ -48,15 +71,26 @@ class ImpersonateStop extends CController {
 		$origin_username = (string) $state['origin_username'];
 		$target_username = (string) $state['target_username'];
 
+		ImpersonateHelper::debug(sprintf('stop: iniciando (logid=%d, target=%s, origin=%s)',
+			(int) $state['logid'], $target_username, $origin_username
+		));
+
 		$restored = ImpersonateHelper::stop(ImpersonateHelper::END_MANUAL);
 
+		ImpersonateHelper::debug('stop: restored='.($restored ? '1' : '0'));
+
 		if (!$restored) {
-			// A sessao original ja tinha expirado - nao ha para onde voltar.
-			$this->setResponse(new CControllerResponseData([
-				'restored'        => false,
-				'origin_username' => $origin_username,
-				'target_username' => $target_username
-			]));
+			// Nao ha para onde voltar: a sessao de origem expirou, foi derrubada, ou
+			// o token guardado no log ficou ilegivel.
+			//
+			// Aqui NAO se renderiza pagina. O stop() ja fez CSessionHelper::unset()
+			// - obrigatorio, senao o Super Admin ficaria logado como o alvo sem
+			// nenhum estado de impersonacao, o que e uma troca silenciosa de
+			// privilegio - e mandar o layout.htmlpage inteiro renderizar depois
+			// disso e pedir para o frontend quebrar. So o redirect para o login.
+			ImpersonateHelper::debug('stop: sem sessao de origem para restaurar - redirecionando para o login');
+
+			$this->setResponse(new CControllerResponseRedirect('index.php?reconnect=1'));
 
 			return;
 		}
@@ -68,5 +102,24 @@ class ImpersonateStop extends CController {
 		$this->setResponse(new CControllerResponseRedirect(
 			(new \CUrl('zabbix.php'))->setArgument('action', 'zbx.impersonate.list')->getUrl()
 		));
+	}
+
+	/**
+	 * Ultimo recurso: sai da impersonacao a qualquer custo e manda para o login.
+	 *
+	 * De proposito sem CMessageHelper, sem view e sem nada que dependa de estado
+	 * do frontend - e o caminho que roda justamente quando algo do frontend
+	 * quebrou. Um redirect e so um header HTTP.
+	 */
+	private function bailOutToLogin(): void {
+		try {
+			ImpersonateHelper::clearState();
+			\CSessionHelper::unset(['sessionid']);
+		}
+		catch (\Throwable $e) {
+			// nada a fazer - o redirect abaixo ainda vale
+		}
+
+		$this->setResponse(new CControllerResponseRedirect('index.php?reconnect=1'));
 	}
 }

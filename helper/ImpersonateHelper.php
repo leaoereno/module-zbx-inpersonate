@@ -935,12 +935,19 @@ class ImpersonateHelper {
 
 		if (!$origin_row) {
 			// Sessao original expirou/foi derrubada: sem volta possivel, forca novo login.
+			self::debug(sprintf(
+				'stop: sessao de origem nao esta mais ativa em `sessions` (userid=%d) - forcando novo login',
+				$origin_userid
+			));
+
 			\CSessionHelper::unset(['sessionid']);
 
 			return false;
 		}
 
 		\CSessionHelper::set('sessionid', $origin_sessionid);
+
+		self::debug('stop: sessao de origem restaurada');
 
 		return true;
 	}
@@ -1073,7 +1080,26 @@ class ImpersonateHelper {
 			' WHERE logid='.\zbx_dbstr((string) $logid)
 		));
 
-		return $row ? self::revealSessionid((string) $row['origin_sessionid']) : '';
+		if (!$row) {
+			self::debug('getOriginSessionid: nenhuma linha para logid '.$logid);
+
+			return '';
+		}
+
+		$stored = (string) $row['origin_sessionid'];
+		$plain = self::revealSessionid($stored);
+
+		if ($plain === '' && $stored !== '') {
+			// Diferenciar os dois casos importa: valor truncado no banco (coluna
+			// origin_sessionid estreita) tem cara de base64 curto; falha de chave
+			// tem o tamanho certo e nao decifra.
+			self::debug(sprintf(
+				'getOriginSessionid: valor ilegivel (logid=%d, %d chars armazenados, cifrado=%s)',
+				$logid, strlen($stored), strncmp($stored, self::ENC_PREFIX, 4) === 0 ? 'sim' : 'nao'
+			));
+		}
+
+		return $plain;
 	}
 
 	/**
