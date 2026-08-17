@@ -113,6 +113,9 @@ class ImpersonateHelper {
 	/** Arquivo proprio de diagnostico (option "debug_file"). */
 	private static string $debug_file = '';
 
+	/** A gravacao no debug_file ja falhou nesta request? */
+	private static bool $debug_file_failed = false;
+
 	/** Evita registrar o trap de fatal mais de uma vez por request. */
 	private static bool $trap_installed = false;
 
@@ -147,19 +150,58 @@ class ImpersonateHelper {
 			return;
 		}
 
-		if (self::$debug_file === '') {
-			\error_log('[zbx-impersonate] '.$message);
+		if (self::$debug_file !== '') {
+			$line = sprintf('[%s] [%s] [pid %d] %s%s',
+				date('Y-m-d H:i:s'), (string) gethostname(), getmypid(), $message, PHP_EOL
+			);
 
-			return;
+			// SEM o operador @. A versao anterior silenciava a falha de escrita, e o
+			// sintoma era o pior possivel para depurar: arquivo de log vazio, sem
+			// nenhuma pista de que a gravacao estava sendo recusada (tipico de
+			// SELinux negando o php-fpm em /var/log/, ou de permissao no diretorio).
+			if (@file_put_contents(self::$debug_file, $line, FILE_APPEND) !== false) {
+				return;
+			}
+
+			self::$debug_file_failed = true;
 		}
 
-		@file_put_contents(
-			self::$debug_file,
-			sprintf('[%s] [%s] [pid %d] %s%s',
-				date('Y-m-d H:i:s'), (string) gethostname(), getmypid(), $message, PHP_EOL
-			),
-			FILE_APPEND
-		);
+		\error_log('[zbx-impersonate] '.$message);
+	}
+
+	/**
+	 * Diagnostico do proprio diagnostico: da para gravar no debug_file?
+	 *
+	 * Mostrado na tela de listagem. Sem isso, "o log esta vazio" e ambiguo entre
+	 * "o modulo nao registrou nada" e "o modulo nao consegue escrever" - e essas
+	 * duas coisas levam a investigacoes completamente diferentes.
+	 */
+	public static function debugFileStatus(): string {
+		if (!self::$debug) {
+			return 'debug desligado';
+		}
+
+		if (self::$debug_file === '') {
+			return 'usando error_log() do PHP';
+		}
+
+		if (self::$debug_file_failed) {
+			return 'FALHA AO ESCREVER - checar permissao/SELinux';
+		}
+
+		$dir = dirname(self::$debug_file);
+
+		if (!is_dir($dir)) {
+			return 'diretorio nao existe: '.$dir;
+		}
+
+		if (file_exists(self::$debug_file)) {
+			return is_writable(self::$debug_file)
+				? 'gravavel ('.(int) filesize(self::$debug_file).' bytes)'
+				: 'arquivo NAO gravavel pelo php-fpm';
+		}
+
+		return is_writable($dir) ? 'sera criado no primeiro registro' : 'diretorio NAO gravavel pelo php-fpm';
 	}
 
 	/**

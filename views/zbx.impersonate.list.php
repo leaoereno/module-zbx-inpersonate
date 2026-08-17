@@ -38,10 +38,13 @@ $require_reason = (int) $data['config']['require_reason'] === 1;
             v<?= $e($data['config']['version']) ?> &middot; servido por <?= $e($data['config']['hostname']) ?>
         </span>
         <?php if ((int) $data['config']['debug'] === 1): ?>
-            <span class="badge badge-warn" style="margin-left:6px;">
+            <?php $debug_broken = strpos((string) $data['config']['debug_status'], 'NAO') !== false
+                || strpos((string) $data['config']['debug_status'], 'FALHA') !== false; ?>
+            <span class="badge <?= $debug_broken ? 'badge-err' : 'badge-warn' ?>" style="margin-left:6px;">
                 debug ligado<?= $data['config']['debug_file'] !== ''
                     ? ' &rarr; '.$e($data['config']['debug_file'])
-                    : ' (error_log do PHP)' ?>
+                    : '' ?>
+                &middot; <?= $e($data['config']['debug_status']) ?>
             </span>
         <?php endif; ?>
     </div>

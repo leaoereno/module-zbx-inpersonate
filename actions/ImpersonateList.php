@@ -42,6 +42,12 @@ class ImpersonateList extends CController {
 		// Admin passa, e cada linha aberta guarda o token da sessao de origem.
 		$stale_closed = ImpersonateHelper::closeStaleLogRows((int) $config['stale_after']);
 
+		// Escrita de teste: confirma na pratica que o debug_file funciona, em vez de
+		// so inferir por is_writable(). Com SELinux os dois podem discordar.
+		ImpersonateHelper::debug('list: tela de listagem aberta por '.(string) \CWebUser::$data['username']);
+
+		$config['debug_status'] = ImpersonateHelper::debugFileStatus();
+
 		$sql = 'SELECT u.userid,u.username,u.name,u.surname,u.roleid,u.userdirectoryid,u.attempt_failed,'.
 				'r.name AS role_name,r.type AS role_type'.
 			' FROM users u'.
