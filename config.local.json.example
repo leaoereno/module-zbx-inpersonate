@@ -1,0 +1,7 @@
+{
+    "_comentario": "Copie para config.local.json (ignorado pelo git). Sobrepoe o bloco config do manifest.json chave a chave, neste frontend apenas. Nao precisa repetir as chaves que nao mudam.",
+
+    "debug": 1,
+    "debug_file": "/usr/share/zabbix/modules/module-zbx-inpersonate/debug.log",
+    "banner": 1
+}

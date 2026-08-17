@@ -164,6 +164,7 @@ class ImpersonateList extends CController {
 			'stale_after'              => $stale_after,
 			'debug'                    => $debug,
 			'debug_file'               => $debug_file,
+			'local_config'             => ImpersonateHelper::hasLocalConfig(),
 			'moduleid'                 => $moduleid,
 			'version'                  => $version,
 			// Atras do F5 os dois frontends respondem alternadamente. Sem saber QUAL

@@ -37,6 +37,9 @@ $require_reason = (int) $data['config']['require_reason'] === 1;
         <span class="im-build">
             v<?= $e($data['config']['version']) ?> &middot; servido por <?= $e($data['config']['hostname']) ?>
         </span>
+        <?php if ($data['config']['local_config']): ?>
+            <span class="badge badge-info" style="margin-left:6px;">config.local.json ativo</span>
+        <?php endif; ?>
         <?php if ((int) $data['config']['debug'] === 1): ?>
             <?php $debug_broken = strpos((string) $data['config']['debug_status'], 'NAO') !== false
                 || strpos((string) $data['config']['debug_status'], 'FALHA') !== false; ?>

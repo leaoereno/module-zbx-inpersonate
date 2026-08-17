@@ -12,3 +12,8 @@
 # drwxr-x--- do root e barra o apache mesmo com o arquivo pertencendo a ele.
 debug.log
 *.log
+
+# Override de configuracao por frontend. O manifest.json e versionado; editar
+# nele para ligar debug ou desligar o banner num no cria conflito em todo pull.
+# Este arquivo sobrepoe o manifest chave a chave e nunca entra no repositorio.
+config.local.json

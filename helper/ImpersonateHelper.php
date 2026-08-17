@@ -119,8 +119,20 @@ class ImpersonateHelper {
 	/** Evita registrar o trap de fatal mais de uma vez por request. */
 	private static bool $trap_installed = false;
 
-	/** Bloco "config" lido do manifest.json em disco (cache por request). */
+	/** Configuracao efetiva lida do disco (cache por request). */
 	private static ?array $manifest_config = null;
+
+	/** Config versionada, igual em todos os frontends. */
+	private const MANIFEST_FILE = 'manifest.json';
+
+	/**
+	 * Override por frontend, fora do git.
+	 *
+	 * O manifest.json e versionado: editar nele para ligar debug ou desligar o
+	 * banner num no cria conflito em todo `git pull`. Este arquivo e ignorado
+	 * pelo .gitignore e sobrepoe o manifest chave a chave.
+	 */
+	private const LOCAL_CONFIG_FILE = 'config.local.json';
 
 	// -----------------------------------------------------------------------
 	// Configuracao
@@ -148,22 +160,48 @@ class ImpersonateHelper {
 	 */
 	public static function option(string $name, $default = null) {
 		if (self::$manifest_config === null) {
-			self::$manifest_config = [];
-
 			// helper/ImpersonateHelper.php -> raiz do modulo.
-			$file = dirname(__DIR__).'/manifest.json';
+			$root = dirname(__DIR__);
 
-			if (is_readable($file)) {
-				$manifest = json_decode((string) file_get_contents($file), true);
-
-				if (is_array($manifest) && array_key_exists('config', $manifest)
-						&& is_array($manifest['config'])) {
-					self::$manifest_config = $manifest['config'];
-				}
-			}
+			// A ordem importa: o config.local.json sobrepoe o manifest.
+			self::$manifest_config = array_replace(
+				self::readConfigFile($root.'/'.self::MANIFEST_FILE, false),
+				self::readConfigFile($root.'/'.self::LOCAL_CONFIG_FILE, true)
+			);
 		}
 
 		return array_key_exists($name, self::$manifest_config) ? self::$manifest_config[$name] : $default;
+	}
+
+	/**
+	 * O config.local.json esta em uso? (mostrado na tela de listagem)
+	 */
+	public static function hasLocalConfig(): bool {
+		return is_readable(dirname(__DIR__).'/'.self::LOCAL_CONFIG_FILE);
+	}
+
+	/**
+	 * @param bool $bare_allowed  true = o arquivo pode ser so o objeto de config,
+	 *                            sem o embrulho "config" que o manifest exige.
+	 */
+	private static function readConfigFile(string $file, bool $bare_allowed): array {
+		if (!is_readable($file)) {
+			return [];
+		}
+
+		$json = json_decode((string) file_get_contents($file), true);
+
+		if (!is_array($json)) {
+			self::debug('readConfigFile: JSON invalido em '.$file);
+
+			return [];
+		}
+
+		if (array_key_exists('config', $json) && is_array($json['config'])) {
+			return $json['config'];
+		}
+
+		return $bare_allowed ? $json : [];
 	}
 
 	// -----------------------------------------------------------------------

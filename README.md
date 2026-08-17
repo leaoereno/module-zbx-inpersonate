@@ -138,7 +138,33 @@ saber qual respondeu é metade do diagnóstico.
 
 Desligue quando terminar — o arquivo cresce sem rotação.
 
-Editou o manifest, vale na hora — **não precisa de Scan directory nem de desabilitar/reabilitar**.
+### Ajustes por frontend: `config.local.json`
+
+O `manifest.json` é versionado. Editar nele para ligar `debug` ou desligar o `banner` num nó
+específico faz **todo `git pull` conflitar**. Use um `config.local.json` ao lado dele — ignorado
+pelo git, sobrepõe o manifest chave a chave, e vale só naquele frontend:
+
+```bash
+cd /usr/share/zabbix/modules/module-zbx-inpersonate
+cp config.local.json.example config.local.json
+vim config.local.json
+chown apache:apache config.local.json
+```
+
+```json
+{
+    "debug": 1,
+    "debug_file": "/usr/share/zabbix/modules/module-zbx-inpersonate/debug.log"
+}
+```
+
+Só as chaves que mudam; o resto continua vindo do manifest. Quando está em uso, a tela de
+listagem mostra um badge **config.local.json ativo** — sem isso, "editei e não mudou nada" vira
+caça ao fantasma.
+
+Editou qualquer um dos dois, vale na hora — **não precisa de Scan directory nem de
+desabilitar/reabilitar** (Scan directory continua necessário quando uma versão nova traz *actions*
+novas).
 
 > Isso é deliberado, e vai contra o comportamento nativo. O Zabbix **não relê o `config` do
 > `manifest.json` a cada request**: a tabela `module` tem uma coluna `config` preenchida quando o
@@ -408,6 +434,7 @@ module-zbx-inpersonate/
 │   ├── zbx.impersonate.grant.php     # echo json_encode(...)
 │   ├── zbx.impersonate.dashboards.php
 │   └── zbx.impersonate.dashdiag.php
+├── config.local.json.example         # modelo do override por frontend (o real é gitignorado)
 ├── sql/role_rule.sql                 # diagnóstico (só SELECTs) + desinstalação
 ├── install.sh
 ├── REVIEW.md                         # revisão de código que originou a 1.2.0
@@ -569,6 +596,8 @@ frontends atrás de F5 BIG-IP · módulos em `/usr/share/zabbix/modules/`
 
 **Adicionado**
 
+- **`config.local.json`** — override de configuração por frontend, fora do git. O `manifest.json`
+  é versionado, então editá-lo em cada nó fazia todo `git pull` conflitar.
 - **Diagnóstico de dashboard** (botão *Dashboards* na linha do usuário): lê os widgets, resolve
   host groups, hosts, itens, gráficos e mapas referenciados, e aponta o que quebra para aquele
   usuário — separando *objeto inexistente*, *DENY explícito* e *sem permissão*, que produzem a
