@@ -105,7 +105,37 @@ Configuração fica no bloco `config` do `manifest.json`:
 | `encrypt_origin_sessionid` | `1` | Cifra o token da sessão de origem no banco |
 | `require_reason` | `0` | Exige justificativa antes de iniciar |
 | `stale_after` | `86400` | Segundos até um evento aberto ser fechado como `stale` |
-| `debug` | `0` | Manda o motivo real de cada falha interna para o `error_log` do PHP |
+| `debug` | `0` | Registra o motivo real de cada falha interna, mais um trap de erro fatal |
+| `debug_file` | `""` | Arquivo próprio de diagnóstico. Vazio = usa o `error_log()` do PHP |
+
+### Depurando (`debug`)
+
+Com `debug: 1` o módulo registra o motivo real de cada falha que os `catch (\Throwable)`
+engolem, e arma um `register_shutdown_function()` que captura **erros fatais** — esgotamento de
+memória, `Maximum execution time exceeded`, `Error` não capturado. Nenhum `try/catch` alcança
+esses, e sem o trap o sintoma é um 500 pelado.
+
+Prefira `debug_file` a depender do `error_log` do PHP:
+
+```json
+"debug": 1,
+"debug_file": "/var/log/php-fpm/zbx-impersonate.log"
+```
+
+```bash
+touch /var/log/php-fpm/zbx-impersonate.log
+chown apache:apache /var/log/php-fpm/zbx-impersonate.log
+```
+
+O motivo é concreto: num pool de PHP-FPM **sem `error_log` definido**, o PHP manda os erros para
+o stderr e o FPM **descarta tudo** quando `catch_workers_output` está off — que é o default. Nesse
+cenário `error_log()` não vai a lugar nenhum e o módulo fica cego justamente na hora do problema.
+Com `debug_file` ele grava onde você mandou, sem depender da configuração do PHP.
+
+Cada linha traz data, **hostname** e PID. O hostname importa: atrás do F5 são vários frontends, e
+saber qual respondeu é metade do diagnóstico.
+
+Desligue quando terminar — o arquivo cresce sem rotação.
 
 Depois de editar o manifest: **Administration → Modules → Scan directory** para o Zabbix reler.
 

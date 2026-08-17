@@ -21,7 +21,8 @@
         "encrypt_origin_sessionid": 1,
         "require_reason": 0,
         "stale_after": 86400,
-        "debug": 0
+        "debug": 0,
+        "debug_file": ""
     },
     "actions": {
         "zbx.impersonate.list": {

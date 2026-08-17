@@ -26,7 +26,15 @@ class Module extends CModule {
 	 */
 	public function init(): void {
 		try {
-			ImpersonateHelper::setDebug((int) $this->getOption('debug', 0) === 1);
+			ImpersonateHelper::setDebug(
+				(int) $this->getOption('debug', 0) === 1,
+				(string) $this->getOption('debug_file', '')
+			);
+
+			// Armado antes de qualquer coisa: um fatal que aconteca DEPOIS daqui -
+			// no proprio init(), na action, ou na renderizacao da resposta - fica
+			// registrado. E o unico jeito de ver 500 que nao passa por try/catch.
+			ImpersonateHelper::installFatalTrap((string) ($_REQUEST['action'] ?? 'sem-action'));
 
 			$state = ImpersonateHelper::getState();
 

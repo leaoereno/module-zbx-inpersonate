@@ -107,28 +107,96 @@ class ImpersonateHelper {
 	/** A tabela de auditoria esta realmente utilizavel? */
 	private static bool $schema_ok = false;
 
-	/** Liga o error_log de diagnostico (option "debug" do manifest). */
+	/** Liga o diagnostico (option "debug" do manifest). */
 	private static bool $debug = false;
+
+	/** Arquivo proprio de diagnostico (option "debug_file"). */
+	private static string $debug_file = '';
+
+	/** Evita registrar o trap de fatal mais de uma vez por request. */
+	private static bool $trap_installed = false;
 
 	// -----------------------------------------------------------------------
 	// Diagnostico
 	// -----------------------------------------------------------------------
 
-	public static function setDebug(bool $on): void {
+	public static function setDebug(bool $on, string $file = ''): void {
 		self::$debug = $on;
+		self::$debug_file = $file;
 	}
 
 	/**
-	 * Mensagem de diagnostico no error_log do PHP.
+	 * Mensagem de diagnostico.
 	 *
 	 * Os catch(\Throwable) do modulo sao silenciosos de proposito (nao dar tela
 	 * branca no frontend), mas silencio total torna o modulo indepuravel em
-	 * producao. Com debug=1 no manifest o motivo real aparece no log do PHP-FPM.
+	 * producao.
+	 *
+	 * Por que existe a opcao debug_file em vez de so error_log(): num frontend
+	 * com PHP-FPM sem `error_log` definido no pool, o PHP manda os erros para o
+	 * stderr e o FPM DESCARTA tudo se catch_workers_output estiver off - que e o
+	 * default. Ou seja, error_log() pode nao ir a lugar nenhum, e o modulo fica
+	 * cego justamente quando mais se precisa dele. Com debug_file o modulo grava
+	 * onde ele mesmo escolheu, sem depender da configuracao do PHP.
+	 *
+	 * O hostname vai em cada linha de proposito: atras do F5 sao varios
+	 * frontends, e saber QUAL respondeu e metade do diagnostico.
 	 */
 	public static function debug(string $message): void {
-		if (self::$debug) {
-			\error_log('[zbx-impersonate] '.$message);
+		if (!self::$debug) {
+			return;
 		}
+
+		if (self::$debug_file === '') {
+			\error_log('[zbx-impersonate] '.$message);
+
+			return;
+		}
+
+		@file_put_contents(
+			self::$debug_file,
+			sprintf('[%s] [%s] [pid %d] %s%s',
+				date('Y-m-d H:i:s'), (string) gethostname(), getmypid(), $message, PHP_EOL
+			),
+			FILE_APPEND
+		);
+	}
+
+	/**
+	 * Captura erros FATAIS, que nenhum try/catch alcanca.
+	 *
+	 * E_ERROR por esgotamento de memoria, "Maximum execution time exceeded" e
+	 * afins nao sao Throwable - o bloco catch do doAction() nunca os ve, e o
+	 * navegador recebe um 500 pelado. register_shutdown_function() roda depois do
+	 * fatal e error_get_last() diz o que foi.
+	 *
+	 * So e armado com debug=1, entao nao custa nada em producao.
+	 */
+	public static function installFatalTrap(string $context): void {
+		if (!self::$debug || self::$trap_installed) {
+			return;
+		}
+
+		self::$trap_installed = true;
+
+		register_shutdown_function(static function () use ($context): void {
+			$error = error_get_last();
+
+			if ($error === null) {
+				return;
+			}
+
+			$fatal_types = [E_ERROR, E_PARSE, E_CORE_ERROR, E_CORE_WARNING, E_COMPILE_ERROR, E_USER_ERROR];
+
+			if (!in_array((int) $error['type'], $fatal_types, true)) {
+				return;
+			}
+
+			self::debug(sprintf('FATAL (%s) [tipo %d] %s @ %s:%d',
+				$context, (int) $error['type'], (string) $error['message'],
+				(string) $error['file'], (int) $error['line']
+			));
+		});
 	}
 
 	// -----------------------------------------------------------------------
