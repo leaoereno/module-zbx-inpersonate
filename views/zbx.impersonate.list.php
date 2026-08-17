@@ -37,6 +37,13 @@ $require_reason = (int) $data['config']['require_reason'] === 1;
         <span class="im-build">
             v<?= $e($data['config']['version']) ?> &middot; servido por <?= $e($data['config']['hostname']) ?>
         </span>
+        <?php if ((int) $data['config']['debug'] === 1): ?>
+            <span class="badge badge-warn" style="margin-left:6px;">
+                debug ligado<?= $data['config']['debug_file'] !== ''
+                    ? ' &rarr; '.$e($data['config']['debug_file'])
+                    : ' (error_log do PHP)' ?>
+            </span>
+        <?php endif; ?>
     </div>
 
     <div id="im-status" class="status-msg"></div>

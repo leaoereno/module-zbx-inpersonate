@@ -127,6 +127,8 @@ class ImpersonateList extends CController {
 		$banner = 1;
 		$require_reason = 0;
 		$stale_after = 86400;
+		$debug = 0;
+		$debug_file = '';
 		$moduleid = '';
 		$version = '?';
 
@@ -139,6 +141,8 @@ class ImpersonateList extends CController {
 			$banner = (int) $module->getOption('banner', 1);
 			$require_reason = (int) $module->getOption('require_reason', 0);
 			$stale_after = (int) $module->getOption('stale_after', 86400);
+			$debug = (int) $module->getOption('debug', 0);
+			$debug_file = (string) $module->getOption('debug_file', '');
 			$moduleid = $module->getModuleId();
 			$version = $module->getVersion();
 		}
@@ -152,6 +156,8 @@ class ImpersonateList extends CController {
 			'banner'                   => $banner,
 			'require_reason'           => $require_reason,
 			'stale_after'              => $stale_after,
+			'debug'                    => $debug,
+			'debug_file'               => $debug_file,
 			'moduleid'                 => $moduleid,
 			'version'                  => $version,
 			// Atras do F5 os dois frontends respondem alternadamente. Sem saber QUAL

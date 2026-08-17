@@ -31,10 +31,20 @@ class Module extends CModule {
 				(string) $this->getOption('debug_file', '')
 			);
 
+			$action = (string) ($_REQUEST['action'] ?? '');
+
 			// Armado antes de qualquer coisa: um fatal que aconteca DEPOIS daqui -
 			// no proprio init(), na action, ou na renderizacao da resposta - fica
 			// registrado. E o unico jeito de ver 500 que nao passa por try/catch.
-			ImpersonateHelper::installFatalTrap((string) ($_REQUEST['action'] ?? 'sem-action'));
+			ImpersonateHelper::installFatalTrap($action !== '' ? $action : 'sem-action');
+
+			// Nas telas DO MODULO, com debug ligado, o erro tambem vai para a tela.
+			// Num frontend onde o PHP descarta os proprios erros, e a unica forma de
+			// ver a mensagem real por tras de um 500 de corpo vazio. Restrito a
+			// zbx.impersonate.* para nao vazar notice dentro do JSON dos widgets.
+			if (strncmp($action, 'zbx.impersonate.', strlen('zbx.impersonate.')) === 0) {
+				ImpersonateHelper::forceErrorDisplay();
+			}
 
 			$state = ImpersonateHelper::getState();
 

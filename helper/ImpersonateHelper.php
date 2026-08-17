@@ -163,6 +163,32 @@ class ImpersonateHelper {
 	}
 
 	/**
+	 * Joga os erros do PHP na TELA, para as telas deste modulo.
+	 *
+	 * Ultimo recurso de diagnostico, e existe por um motivo pratico: se o pool do
+	 * PHP-FPM nao tem `error_log` definido e catch_workers_output esta off, o
+	 * fatal nao aparece em log NENHUM e o navegador recebe um 500 de corpo vazio.
+	 * Sem acesso a configuracao do PHP, a unica saida e o proprio modulo mandar o
+	 * PHP renderizar o erro - display_errors e PHP_INI_ALL, entao da para ligar em
+	 * tempo de execucao.
+	 *
+	 * Restricoes de proposito:
+	 *   - so com debug=1;
+	 *   - so nas actions zbx.impersonate.* - ligar isso no frontend inteiro faria
+	 *     qualquer notice vazar para dentro das respostas JSON dos widgets e
+	 *     quebrar o dashboard.
+	 */
+	public static function forceErrorDisplay(): void {
+		if (!self::$debug) {
+			return;
+		}
+
+		@ini_set('display_errors', '1');
+		@ini_set('display_startup_errors', '1');
+		@error_reporting(E_ALL);
+	}
+
+	/**
 	 * Captura erros FATAIS, que nenhum try/catch alcanca.
 	 *
 	 * E_ERROR por esgotamento de memoria, "Maximum execution time exceeded" e
