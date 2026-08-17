@@ -5,3 +5,10 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Log de diagnostico do proprio modulo (option debug_file). Fica aqui porque
+# este diretorio e apache:apache depois do install.sh, entao o php-fpm sempre
+# consegue escrever - ao contrario de /var/log/php-fpm/, que costuma ser
+# drwxr-x--- do root e barra o apache mesmo com o arquivo pertencendo a ele.
+debug.log
+*.log
