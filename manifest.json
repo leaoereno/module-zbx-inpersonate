@@ -2,7 +2,7 @@
     "manifest_version": 2,
     "id": "zbx-impersonate",
     "name": "Impersonate",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "namespace": "ZbxImpersonate",
     "author": "Rafael M. A. Leão Ereno - MALE",
     "description": "Permite que Super Admins assumam a sessão de usuários User e Admin do Zabbix (login as) para troubleshooting, com visão idêntica à do usuário, trava de somente-leitura, expiração automática e log de auditoria.",
@@ -54,6 +54,16 @@
             "class": "ImpersonateGrant",
             "layout": "layout.json",
             "view": "zbx.impersonate.grant"
+        },
+        "zbx.impersonate.dashboards": {
+            "class": "ImpersonateDashboards",
+            "layout": "layout.json",
+            "view": "zbx.impersonate.dashboards"
+        },
+        "zbx.impersonate.dashdiag": {
+            "class": "ImpersonateDashDiag",
+            "layout": "layout.json",
+            "view": "zbx.impersonate.dashdiag"
         }
     }
 }

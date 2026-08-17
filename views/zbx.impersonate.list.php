@@ -208,6 +208,10 @@ $require_reason = (int) $data['config']['require_reason'] === 1;
                         <div class="im-actions">
                             <button type="button" class="btn btn-outline btn-sm"
                                     data-profile="<?= (int) $user['userid'] ?>">Perfil</button>
+                            <button type="button" class="btn btn-outline btn-sm"
+                                    data-dashboards="<?= (int) $user['userid'] ?>"
+                                    data-username="<?= $e($user['username']) ?>"
+                                    title="Descobrir por que os dashboards deste usuário mostram erro">Dashboards</button>
                             <?php if ($user['can_impersonate']): ?>
                                 <button type="button" class="btn btn-danger-outline btn-sm"
                                         data-impersonate="<?= (int) $user['userid'] ?>"
@@ -384,6 +388,110 @@ $require_reason = (int) $data['config']['require_reason'] === 1;
         modalBody.innerHTML = '';
     }
 
+    // ---------------------------------------------------------------- dashboards
+
+    function renderDashboardList(res) {
+        var html = '';
+
+        if (!res.dashboards.length) {
+            html = '<div class="im-block">Este usuário não enxerga nenhum dashboard: ele não é dono de ' +
+                'nenhum, não há dashboard público, e nada foi compartilhado com ele nem com seus grupos.</div>';
+        }
+        else {
+            html += '<div class="im-sec"><div class="im-sec-title">Dashboards visíveis para ' +
+                esc(res.username) + '</div>' +
+                '<div class="im-block" style="margin-bottom:10px;">Clique em <em>Analisar</em> para ver o que ' +
+                'quebra na tela dele e por quê.</div>' +
+                '<table class="tbl"><thead><tr><th>Dashboard</th><th>Dono</th><th>Acesso</th>' +
+                '<th>Widgets</th><th></th></tr></thead><tbody>';
+
+            res.dashboards.forEach(function (d) {
+                html += '<tr>' +
+                    '<td><strong>' + esc(d.name) + '</strong></td>' +
+                    '<td class="mono">' + esc(d.owner_username) + '</td>' +
+                    '<td>' + (d.is_owner
+                        ? '<span class="badge badge-ok">dono</span>'
+                        : (d.private
+                            ? '<span class="badge badge-info">compartilhado</span>'
+                            : '<span class="badge badge-gray">público</span>')) + '</td>' +
+                    '<td class="mono">' + esc(d.widgets) + '</td>' +
+                    '<td style="text-align:right;">' +
+                        '<button type="button" class="btn btn-outline btn-sm" data-diag="' + esc(d.dashboardid) +
+                        '">Analisar</button></td>' +
+                    '</tr>';
+            });
+
+            html += '</tbody></table></div>';
+        }
+
+        modalTitle.textContent = 'Dashboards de ' + res.username;
+        modalBody.innerHTML = html;
+        modal.classList.add('open');
+    }
+
+    function renderDiagnostic(res) {
+        var r = res.report;
+        var html = '';
+
+        html += '<div class="im-sec"><div class="im-sec-title">' + esc(r.dashboard.name) + '</div>' +
+            '<div class="im-kv">' +
+            '<div><span>Usuário</span>' + esc(res.username) + '</div>' +
+            '<div><span>Role</span>' + esc(res.role) + '</div>' +
+            '<div><span>Páginas</span>' + esc(r.dashboard.pages) + '</div>' +
+            '<div><span>Widgets</span>' + esc(r.summary.widgets) + '</div>' +
+            '<div><span>Widgets com problema</span>' + esc(r.summary.broken) + '</div>' +
+            '<div><span>Referências quebradas</span>' + esc(r.summary.refs_broken) + '</div>' +
+            '</div></div>';
+
+        if (r.ui_blocked) {
+            html += '<div class="im-callout im-callout-danger"><div class="im-callout-icon">⛔</div><div>' +
+                '<div class="im-callout-title" style="color:var(--c-danger);">A role deste usuário esconde ' +
+                'a seção de dashboards</div>' +
+                '<div class="im-callout-body">Nenhum widget importa: ele nem chega nesta tela. Libere em ' +
+                '<strong>Users &rarr; User roles &rarr; ' + esc(res.role) + ' &rarr; Access to UI elements ' +
+                '&rarr; Monitoring &rarr; Dashboards</strong>.</div></div></div>';
+        }
+
+        if (!r.problems.length) {
+            html += '<div class="im-callout"><div class="im-callout-icon">✅</div><div>' +
+                '<div class="im-callout-title">Nenhuma referência quebrada</div>' +
+                '<div class="im-callout-body">Todos os host groups, hosts, itens e gráficos citados pelos ' +
+                'widgets existem e são legíveis por este usuário. Se a tela dele ainda mostra erro, o ' +
+                'problema não é de permissão em objeto — vale conferir filtros do widget e período.' +
+                '</div></div></div>';
+        }
+        else {
+            r.problems.forEach(function (p) {
+                html += '<div class="im-sec"><div class="im-sec-title">' + esc(p.page) + ' &middot; ' +
+                    esc(p.widget_name) + ' <span class="mono">(' + esc(p.widget_type) + ')</span></div>';
+
+                p.broken.forEach(function (b) {
+                    var cls = b.status === 'deny' ? 'badge-err'
+                        : (b.status === 'missing' ? 'badge-warn' : 'badge-err');
+
+                    html += '<div class="im-callout im-callout-danger" style="margin-bottom:8px;">' +
+                        '<div class="im-callout-icon">' +
+                            (b.status === 'missing' ? '🗑️' : (b.status === 'deny' ? '⛔' : '🔒')) +
+                        '</div><div>' +
+                        '<div class="im-callout-title" style="color:var(--c-danger);">' +
+                            '<span class="badge ' + cls + '">' + esc(b.label) + '</span> ' +
+                            esc(b.kind) + ': ' + esc(b.name) +
+                        '</div>' +
+                        '<div class="im-callout-body">' + esc(b.detail) +
+                            (b.field ? '<div style="margin-top:6px;">Campo do widget: <code>' +
+                                esc(b.field) + '</code></div>' : '') +
+                        '</div></div></div>';
+                });
+
+                html += '</div>';
+            });
+        }
+
+        modalTitle.textContent = 'Diagnóstico · ' + r.dashboard.name;
+        modalBody.innerHTML = html;
+        modal.classList.add('open');
+    }
+
     document.getElementById('im-modal-close').addEventListener('click', closeModal);
     document.getElementById('im-modal-dismiss').addEventListener('click', closeModal);
     modal.addEventListener('click', function (ev) { if (ev.target === modal) { closeModal(); } });
@@ -484,7 +592,62 @@ $require_reason = (int) $data['config']['require_reason'] === 1;
         });
     }
 
+    // Guardado ao abrir a lista de dashboards: o botao "Analisar" vive dentro do
+    // modal e precisa saber de QUAL usuario e o diagnostico.
+    var diagUserid = null;
+
     document.addEventListener('click', function (ev) {
+        var dashBtn = ev.target.closest('[data-dashboards]');
+
+        if (dashBtn) {
+            diagUserid = dashBtn.dataset.dashboards;
+            dashBtn.disabled = true;
+
+            post('zbx.impersonate.dashboards', { userid: diagUserid })
+                .then(function (res) {
+                    if (res && res.error && res.error.title) {
+                        showStatus(res.error.title, false);
+                        return;
+                    }
+                    if (!res || !res.success) {
+                        showStatus((res && res.error) || 'Falha ao listar os dashboards.', false);
+                        return;
+                    }
+                    renderDashboardList(res);
+                })
+                .catch(function (err) { showStatus('Erro de rede: ' + err, false); })
+                .finally(function () { dashBtn.disabled = false; });
+
+            return;
+        }
+
+        var diagBtn = ev.target.closest('[data-diag]');
+
+        if (diagBtn) {
+            diagBtn.disabled = true;
+            diagBtn.textContent = 'Analisando...';
+
+            post('zbx.impersonate.dashdiag', { userid: diagUserid, dashboardid: diagBtn.dataset.diag })
+                .then(function (res) {
+                    if (res && res.error && res.error.title) {
+                        showStatus(res.error.title, false);
+                        return;
+                    }
+                    if (!res || !res.success) {
+                        showStatus((res && res.error) || 'Falha ao analisar o dashboard.', false);
+                        return;
+                    }
+                    renderDiagnostic(res);
+                })
+                .catch(function (err) { showStatus('Erro de rede: ' + err, false); })
+                .finally(function () {
+                    diagBtn.disabled = false;
+                    diagBtn.textContent = 'Analisar';
+                });
+
+            return;
+        }
+
         var profileBtn = ev.target.closest('[data-profile]');
 
         if (profileBtn) {

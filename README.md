@@ -324,6 +324,33 @@ módulo é sempre assim.
 Alvos bloqueados aparecem na lista com o motivo em vez do botão — *Super Admin (bloqueado por
 política)*, *GUI access desabilitado*, *Role sem acesso ao módulo Impersonate*, etc.
 
+### Diagnóstico de dashboard
+
+O botão **Dashboards** na linha do usuário responde a pergunta que sobra depois de impersonar:
+*"a tela dele está cheia de erro — o que exatamente falta?"*.
+
+Ele lista os dashboards que aquele usuário enxerga (dono, públicos, e os compartilhados com ele ou
+com seus grupos) e, em *Analisar*, lê os widgets, resolve **todo** objeto referenciado — host
+group, host, item, gráfico, mapa — e confronta com as permissões efetivas dele.
+
+O relatório mostra só o que está quebrado, separando três causas que produzem a **mesma** mensagem
+na tela do usuário e exigem correções opostas:
+
+| Diagnóstico | O que significa | Correção |
+|---|---|---|
+| **Objeto não existe** | O widget aponta para um id removido do Zabbix | Não é permissão — quebra até para Super Admin. Corrija ou remova o widget |
+| **DENY explícito** | Algum grupo de usuário do alvo tem DENY no host group | **Conceder mais permissão não resolve**: no Zabbix o DENY vence qualquer Read/Read-write. Remova o DENY |
+| **Sem permissão** | Nenhum grupo dele concede leitura naquele host group | Conceda Read no host group para um dos grupos de usuário dele |
+
+O relatório nomeia o host group faltante e, no caso de DENY, **qual grupo de usuário** está
+negando — que é o ponto onde "mas eu já dei permissão para ele" costuma morrer.
+
+Tudo somente leitura: o diagnóstico não altera permissão nenhuma.
+
+> Gráficos exigem permissão em **todos** os hosts dos itens que os compõem — um gráfico com itens
+> de dois hosts quebra se faltar acesso a qualquer um deles. Mapas não são protegidos por host
+> group e sim por compartilhamento próprio, então para eles a checagem para na existência.
+
 ### Liberando o módulo nas roles
 
 Se as roles do ambiente têm "Access to modules" configurado explicitamente, o módulo novo entra
@@ -364,9 +391,12 @@ module-zbx-inpersonate/
 │   ├── ImpersonateStart.php          # zbx.impersonate.start     layout.json
 │   ├── ImpersonateStop.php           # zbx.impersonate.stop      layout.htmlpage (redirect)
 │   ├── ImpersonateLog.php            # zbx.impersonate.log       layout.htmlpage
-│   └── ImpersonateGrant.php          # zbx.impersonate.grant     layout.json
+│   ├── ImpersonateGrant.php          # zbx.impersonate.grant      layout.json
+│   ├── ImpersonateDashboards.php     # zbx.impersonate.dashboards layout.json
+│   └── ImpersonateDashDiag.php       # zbx.impersonate.dashdiag   layout.json
 ├── helper/
 │   ├── ImpersonateHelper.php         # troca de sessão, políticas, auditoria, schema
+│   ├── DashboardDiagnostics.php      # permissões efetivas x objetos citados pelos widgets
 │   └── ImpersonateAssets.php         # CSS inline compartilhado pelas views (escopado + tema)
 ├── views/
 │   ├── zbx.impersonate.list.php
@@ -374,7 +404,9 @@ module-zbx-inpersonate/
 │   ├── zbx.impersonate.start.php     # echo json_encode(...)
 │   ├── zbx.impersonate.stop.php      # fallback quando a sessão original morreu
 │   ├── zbx.impersonate.log.php
-│   └── zbx.impersonate.grant.php     # echo json_encode(...)
+│   ├── zbx.impersonate.grant.php     # echo json_encode(...)
+│   ├── zbx.impersonate.dashboards.php
+│   └── zbx.impersonate.dashdiag.php
 ├── sql/role_rule.sql                 # diagnóstico (só SELECTs) + desinstalação
 ├── install.sh
 ├── REVIEW.md                         # revisão de código que originou a 1.2.0
@@ -531,6 +563,15 @@ frontends atrás de F5 BIG-IP · módulos em `/usr/share/zabbix/modules/`
 ---
 
 ## Changelog
+
+### 1.3.0
+
+**Adicionado**
+
+- **Diagnóstico de dashboard** (botão *Dashboards* na linha do usuário): lê os widgets, resolve
+  host groups, hosts, itens, gráficos e mapas referenciados, e aponta o que quebra para aquele
+  usuário — separando *objeto inexistente*, *DENY explícito* e *sem permissão*, que produzem a
+  mesma mensagem na tela e pedem correções opostas. Somente leitura.
 
 ### 1.2.0
 
