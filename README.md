@@ -87,7 +87,8 @@ Configuração fica no bloco `config` do `manifest.json`:
     "encrypt_origin_sessionid": 1,
     "require_reason": 0,
     "stale_after": 86400,
-    "debug": 0
+    "debug": 0,
+    "debug_file": ""
 }
 ```
 
@@ -402,7 +403,7 @@ module-zbx-inpersonate/
 │   ├── zbx.impersonate.list.php
 │   ├── zbx.impersonate.profile.php   # echo json_encode(...)
 │   ├── zbx.impersonate.start.php     # echo json_encode(...)
-│   ├── zbx.impersonate.stop.php      # fallback quando a sessão original morreu
+│   ├── zbx.impersonate.stop.php      # não renderizada (todo desfecho é redirect); ver o arquivo
 │   ├── zbx.impersonate.log.php
 │   ├── zbx.impersonate.grant.php     # echo json_encode(...)
 │   ├── zbx.impersonate.dashboards.php
