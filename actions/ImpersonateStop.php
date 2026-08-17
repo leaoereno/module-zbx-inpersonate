@@ -17,6 +17,24 @@ use Modules\ZbxImpersonate\Helper\ImpersonateHelper;
 
 class ImpersonateStop extends CController {
 
+	/*
+	 * CUIDADO AO MEXER NOS REDIRECTS DESTE ARQUIVO.
+	 *
+	 * No Zabbix 7.0 a assinatura e:
+	 *
+	 *     CControllerResponseRedirect::__construct(CUrl $location)
+	 *
+	 * O argumento e TIPADO como CUrl. Passar o resultado de ->getUrl(), que e
+	 * string, lanca TypeError - e como isso acontece dentro do doAction(), o
+	 * ZBase nao trata: vira "Uncaught TypeError", HTTP 500 de corpo vazio.
+	 *
+	 * Era exatamente esse o erro que quebrava a saida da impersonacao desde o
+	 * primeiro commit do modulo. Passe o objeto CUrl, nunca ->getUrl().
+	 *
+	 * Nao confundir com a funcao global redirect($url), usada no Module.php,
+	 * que continua recebendo string.
+	 */
+
 	protected function init(): void {
 		$this->disableCsrfValidation();
 	}
@@ -62,7 +80,7 @@ class ImpersonateStop extends CController {
 			\CMessageHelper::addWarning('Nao ha impersonacao ativa nesta sessao.');
 
 			$this->setResponse(new CControllerResponseRedirect(
-				(new \CUrl('zabbix.php'))->setArgument('action', 'dashboard.view')->getUrl()
+				(new \CUrl('zabbix.php'))->setArgument('action', 'dashboard.view')
 			));
 
 			return;
@@ -91,7 +109,7 @@ class ImpersonateStop extends CController {
 			ImpersonateHelper::debug('stop: sem sessao de origem para restaurar - redirecionando para o login');
 
 			$this->setResponse(new CControllerResponseRedirect(
-				(new \CUrl('index.php'))->setArgument('reconnect', 1)->getUrl()
+				(new \CUrl('index.php'))->setArgument('reconnect', 1)
 			));
 
 			return;
@@ -102,7 +120,7 @@ class ImpersonateStop extends CController {
 		));
 
 		$this->setResponse(new CControllerResponseRedirect(
-			(new \CUrl('zabbix.php'))->setArgument('action', 'zbx.impersonate.list')->getUrl()
+			(new \CUrl('zabbix.php'))->setArgument('action', 'zbx.impersonate.list')
 		));
 	}
 
@@ -123,7 +141,7 @@ class ImpersonateStop extends CController {
 		}
 
 		$this->setResponse(new CControllerResponseRedirect(
-			(new \CUrl('index.php'))->setArgument('reconnect', 1)->getUrl()
+			(new \CUrl('index.php'))->setArgument('reconnect', 1)
 		));
 	}
 }
