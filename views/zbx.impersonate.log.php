@@ -32,7 +32,8 @@ $reason_badge = static function (string $reason, int $ended): array {
 <?= \Modules\ZbxImpersonate\Helper\ImpersonateAssets::css() ?>
 
 <div class="im-wrap">
-    <div class="im-title">📋 Impersonate &mdash; log de auditoria</div>
+    <div class="im-title">📋 Impersonate</div>
+    <?= \Modules\ZbxImpersonate\Helper\ImpersonateAssets::tabs('log') ?>
     <div class="im-sub">
         Registro próprio do módulo. O Zabbix também grava um evento <code>Login</code> nativo em nome do
         usuário alvo a cada impersonação (Reports &rarr; Audit log).
@@ -71,7 +72,6 @@ $reason_badge = static function (string $reason, int $ended): array {
             </select>
         </div>
         <button type="submit" class="btn btn-primary">Filtrar</button>
-        <a class="btn btn-outline" href="zabbix.php?action=zbx.impersonate.list">🎭 Voltar para Impersonate</a>
     </form>
 
     <div class="card">

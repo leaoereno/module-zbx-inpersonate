@@ -264,7 +264,41 @@ class Module extends CModule {
 
 		$submenu = $section->getSubMenu();
 
-		$submenu->add((new CMenuItem('Impersonate'))->setAction('zbx.impersonate.list'));
-		$submenu->add((new CMenuItem('Impersonate log'))->setAction('zbx.impersonate.log'));
+		$submenu->add($this->buildImpersonateMenuItem());
+	}
+
+	/**
+	 * Item "Impersonate" dentro de Usuarios, com os dois destinos abaixo dele.
+	 *
+	 * Navegacao desejada:
+	 *
+	 *     Usuarios -> Impersonate -> Impersonate User
+	 *                             -> Impersonate Logs
+	 *
+	 * A sidebar nativa do Zabbix trabalha com DOIS niveis (secao -> item); onde o
+	 * core precisa de um terceiro, ele usa sub-navegacao dentro da propria pagina
+	 * (Administration -> General e o exemplo). Entao aqui a hierarquia e tentada
+	 * pelo caminho nativo, e as duas telas do modulo trazem as abas
+	 * "Impersonate User" / "Impersonate Logs" de qualquer forma - assim a
+	 * navegacao pedida existe mesmo que a sidebar ignore o terceiro nivel.
+	 *
+	 * O try/catch e proposital: setSubMenu()/CMenu nao sao API estavel entre
+	 * versoes, e uma excecao aqui apagaria o menu inteiro do modulo (o init()
+	 * engole Throwable). No pior caso cai para o item simples, que sempre funciona.
+	 */
+	private function buildImpersonateMenuItem(): CMenuItem {
+		$item = (new CMenuItem('Impersonate'))->setAction('zbx.impersonate.list');
+
+		try {
+			$item->setSubMenu(new \CMenu([
+				(new CMenuItem('Impersonate User'))->setAction('zbx.impersonate.list'),
+				(new CMenuItem('Impersonate Logs'))->setAction('zbx.impersonate.log')
+			]));
+		}
+		catch (\Throwable $e) {
+			ImpersonateHelper::debug('menu: sidebar sem suporte a submenu - '.$e->getMessage());
+		}
+
+		return $item;
 	}
 }

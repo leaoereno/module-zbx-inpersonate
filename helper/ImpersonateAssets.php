@@ -40,6 +40,34 @@ class ImpersonateAssets {
 			'</style>';
 	}
 
+	/**
+	 * Abas "Impersonate User" / "Impersonate Logs".
+	 *
+	 * Sao a garantia da navegacao Usuarios -> Impersonate -> <tela>: a sidebar do
+	 * Zabbix trabalha com dois niveis, e onde o core precisa de um terceiro ele usa
+	 * exatamente este padrao (ver Administration -> General).
+	 *
+	 * @param string $current  'list' ou 'log'
+	 */
+	public static function tabs(string $current): string {
+		$tabs = [
+			'list' => ['Impersonate User', 'zbx.impersonate.list'],
+			'log'  => ['Impersonate Logs', 'zbx.impersonate.log']
+		];
+
+		$html = '<div class="im-tabs">';
+
+		foreach ($tabs as $key => [$label, $action]) {
+			$html .= sprintf('<a class="im-tab%s" href="zabbix.php?action=%s">%s</a>',
+				$key === $current ? ' is-active' : '',
+				htmlspecialchars($action, ENT_QUOTES, 'UTF-8'),
+				htmlspecialchars($label, ENT_QUOTES, 'UTF-8')
+			);
+		}
+
+		return $html.'</div>';
+	}
+
 	// -----------------------------------------------------------------------
 
 	private static function lightPalette(): string {
@@ -195,6 +223,13 @@ CSS;
     margin-bottom:12px; display:none; }
 .status-msg.ok { display:block; background:var(--c-success-bg); color:var(--c-success); }
 .status-msg.err { display:block; background:var(--c-danger-bg); color:var(--c-danger); }
+
+.im-tabs { display:flex; gap:4px; border-bottom:2px solid var(--c-border); margin-bottom:16px; }
+.im-tab { display:inline-flex; align-items:center; gap:6px; padding:9px 16px; font-size:13px;
+    font-weight:600; color:var(--c-muted); text-decoration:none; border-bottom:2px solid transparent;
+    margin-bottom:-2px; border-radius:6px 6px 0 0; }
+.im-tab:hover { color:var(--c-accent); background:var(--c-accent-light); }
+.im-tab.is-active { color:var(--c-accent); border-bottom-color:var(--c-accent); }
 
 .im-reason { width:100%; min-height:64px; padding:8px 11px; border:1px solid var(--c-border);
     border-radius:7px; font-size:13px; font-family:inherit; color:var(--c-text);

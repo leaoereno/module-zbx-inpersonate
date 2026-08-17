@@ -30,6 +30,7 @@ $require_reason = (int) $data['config']['require_reason'] === 1;
 
 <div class="im-wrap">
     <div class="im-title">🎭 Impersonate</div>
+    <?= \Modules\ZbxImpersonate\Helper\ImpersonateAssets::tabs('list') ?>
     <div class="im-sub">
         Assuma a sessão de um usuário <strong>User</strong> ou <strong>Admin</strong> do Zabbix e veja a
         interface exatamente como ele a vê &mdash; mesmas permissões, mesmo tema, mesmo idioma e os
@@ -161,7 +162,6 @@ $require_reason = (int) $data['config']['require_reason'] === 1;
             </select>
         </div>
         <button type="submit" class="btn btn-primary">Filtrar</button>
-        <a class="btn btn-outline" href="zabbix.php?action=zbx.impersonate.log">📋 Ver log de auditoria</a>
     </form>
 
     <div class="card">

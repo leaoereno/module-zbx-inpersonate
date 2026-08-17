@@ -340,13 +340,26 @@ módulo é sempre assim.
 
 ## Uso
 
-1. **Users → Impersonate**
+Navegação: **Usuários → Impersonate**, com duas telas:
+
+| Tela | O que faz |
+|---|---|
+| **Impersonate User** | Lista de usuários, perfil, diagnóstico de dashboard e o botão de impersonar |
+| **Impersonate Logs** | Auditoria de todas as impersonações |
+
+> A sidebar do Zabbix trabalha com **dois níveis** (seção → item). Onde o core precisa de um
+> terceiro, ele usa sub-navegação dentro da própria página — é o caso de *Administration → General*.
+> O módulo segue a mesma convenção: o item **Impersonate** entra em *Usuários*, e as duas telas
+> aparecem como abas dentro dele. O submenu nativo também é tentado, então em instalações cuja
+> sidebar renderize três níveis eles aparecem lá igualmente.
+
+1. **Usuários → Impersonate**
 2. *Perfil* abre um modal read-only com role, regras de UI, grupos, permissões efetivas em host
    groups, medias, sessões ativas e histórico de impersonação — sem trocar de sessão.
 3. *Impersonar* pede confirmação e troca a sessão.
 4. Durante a impersonação: aviso amarelo em toda página + **Sair da impersonação (usuário)** no
    topo do menu lateral.
-5. **Users → Impersonate log** mostra a auditoria completa.
+5. A aba **Impersonate Logs** mostra a auditoria completa.
 
 Alvos bloqueados aparecem na lista com o motivo em vez do botão — *Super Admin (bloqueado por
 política)*, *GUI access desabilitado*, *Role sem acesso ao módulo Impersonate*, etc.
@@ -593,6 +606,11 @@ frontends atrás de F5 BIG-IP · módulos em `/usr/share/zabbix/modules/`
 ## Changelog
 
 ### 1.3.0
+
+**Alterado**
+
+- Navegação: **Usuários → Impersonate**, com as telas **Impersonate User** e **Impersonate Logs**
+  como abas dentro da página. Antes eram dois itens irmãos soltos na seção *Usuários*.
 
 **Adicionado**
 
