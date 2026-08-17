@@ -56,18 +56,18 @@ class ImpersonateStart extends CController {
 
 		$reason = trim((string) $this->getInput('reason', ''));
 
-		if ((int) $module->getOption('require_reason', 0) === 1 && $reason === '') {
+		if ((int) ImpersonateHelper::option('require_reason', 0) === 1 && $reason === '') {
 			$this->respond(false, 'Informe o motivo da impersonacao (exigido pela politica do modulo).');
 
 			return;
 		}
 
 		$result = ImpersonateHelper::start((int) $this->getInput('userid'), [
-			'ttl'                   => (int) $module->getOption('session_ttl', ImpersonateHelper::DEFAULT_TTL),
-			'readonly'              => (int) $module->getOption('readonly', 1) === 1,
-			'block_super_admin'     => (int) $module->getOption('block_super_admin_target', 1) === 1,
-			'require_module_access' => (int) $module->getOption('require_module_access', 1) === 1,
-			'encrypt'               => (int) $module->getOption('encrypt_origin_sessionid', 1) === 1,
+			'ttl'                   => (int) ImpersonateHelper::option('session_ttl', ImpersonateHelper::DEFAULT_TTL),
+			'readonly'              => (int) ImpersonateHelper::option('readonly', 1) === 1,
+			'block_super_admin'     => (int) ImpersonateHelper::option('block_super_admin_target', 1) === 1,
+			'require_module_access' => (int) ImpersonateHelper::option('require_module_access', 1) === 1,
+			'encrypt'               => (int) ImpersonateHelper::option('encrypt_origin_sessionid', 1) === 1,
 			'moduleid'              => $module->getModuleId(),
 			'reason'                => $reason
 		]);

@@ -137,7 +137,19 @@ saber qual respondeu é metade do diagnóstico.
 
 Desligue quando terminar — o arquivo cresce sem rotação.
 
-Depois de editar o manifest: **Administration → Modules → Scan directory** para o Zabbix reler.
+Editou o manifest, vale na hora — **não precisa de Scan directory nem de desabilitar/reabilitar**.
+
+> Isso é deliberado, e vai contra o comportamento nativo. O Zabbix **não relê o `config` do
+> `manifest.json` a cada request**: a tabela `module` tem uma coluna `config` preenchida quando o
+> módulo é *registrado*, e a partir daí `CModule::getOption()` responde a partir do **banco**.
+> Editar o manifest depois disso não muda nada — e chaves novas, adicionadas numa versão
+> posterior, simplesmente não existem para o `getOption()`, que devolve o default em silêncio.
+> Num frontend que já tinha o módulo registrado desde a 1.1.x, **todas** as opções novas da 1.2.0
+> ficariam inertes até desregistrar e reescanear o módulo.
+>
+> Por isso o módulo lê as próprias opções direto do `manifest.json` em disco
+> (`ImpersonateHelper::option()`), com cache por request. Editou o manifest naquele frontend, vale
+> naquele frontend — que é o que faz sentido num deploy por git com um checkout por nó.
 
 ### Fidelidade da visão (troubleshooting)
 

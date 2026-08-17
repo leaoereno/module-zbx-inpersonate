@@ -139,16 +139,16 @@ class ImpersonateList extends CController {
 		$version = '?';
 
 		if ($module !== null) {
-			$ttl = (int) $module->getOption('session_ttl', ImpersonateHelper::DEFAULT_TTL);
-			$readonly = (int) $module->getOption('readonly', 1);
-			$readonly_mode = (string) $module->getOption('readonly_mode', 'blacklist');
-			$block_sa = (int) $module->getOption('block_super_admin_target', 1);
-			$require_access = (int) $module->getOption('require_module_access', 1);
-			$banner = (int) $module->getOption('banner', 1);
-			$require_reason = (int) $module->getOption('require_reason', 0);
-			$stale_after = (int) $module->getOption('stale_after', 86400);
-			$debug = (int) $module->getOption('debug', 0);
-			$debug_file = (string) $module->getOption('debug_file', '');
+			$ttl = (int) ImpersonateHelper::option('session_ttl', ImpersonateHelper::DEFAULT_TTL);
+			$readonly = (int) ImpersonateHelper::option('readonly', 1);
+			$readonly_mode = (string) ImpersonateHelper::option('readonly_mode', 'blacklist');
+			$block_sa = (int) ImpersonateHelper::option('block_super_admin_target', 1);
+			$require_access = (int) ImpersonateHelper::option('require_module_access', 1);
+			$banner = (int) ImpersonateHelper::option('banner', 1);
+			$require_reason = (int) ImpersonateHelper::option('require_reason', 0);
+			$stale_after = (int) ImpersonateHelper::option('stale_after', 86400);
+			$debug = (int) ImpersonateHelper::option('debug', 0);
+			$debug_file = (string) ImpersonateHelper::option('debug_file', '');
 			$moduleid = $module->getModuleId();
 			$version = $module->getVersion();
 		}

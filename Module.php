@@ -27,8 +27,8 @@ class Module extends CModule {
 	public function init(): void {
 		try {
 			ImpersonateHelper::setDebug(
-				(int) $this->getOption('debug', 0) === 1,
-				(string) $this->getOption('debug_file', '')
+				(int) ImpersonateHelper::option('debug', 0) === 1,
+				(string) ImpersonateHelper::option('debug_file', '')
 			);
 
 			$action = (string) ($_REQUEST['action'] ?? '');
@@ -90,7 +90,7 @@ class Module extends CModule {
 			// usuario sair por ali, o evento tem que ser fechado no log e a sessao
 			// Super Admin de origem apagada - senao sobra linha com ended=0 para
 			// sempre e um token privilegiado orfao no banco.
-			if ((int) $this->getOption('stop_on_logout', 1) === 1
+			if ((int) ImpersonateHelper::option('stop_on_logout', 1) === 1
 					&& ImpersonateHelper::isLogoutRequest($action_name)) {
 				ImpersonateHelper::abandon(ImpersonateHelper::END_LOGOUT);
 
@@ -101,8 +101,8 @@ class Module extends CModule {
 				return;
 			}
 
-			$extra = $this->getOption('readonly_extra_suffixes', []);
-			$mode = (string) $this->getOption('readonly_mode', 'blacklist');
+			$extra = ImpersonateHelper::option('readonly_extra_suffixes', []);
+			$mode = (string) ImpersonateHelper::option('readonly_mode', 'blacklist');
 
 			if (!ImpersonateHelper::isWriteAction($action_name, is_array($extra) ? $extra : [], $mode)) {
 				return;
@@ -181,7 +181,7 @@ class Module extends CModule {
 	 * basta "banner": 0 no manifest - o item de menu continua sendo a saida.
 	 */
 	private function addBanner(array $state, int $expires): void {
-		if ((int) $this->getOption('banner', 1) !== 1 || !ImpersonateHelper::isPageRequest()) {
+		if ((int) ImpersonateHelper::option('banner', 1) !== 1 || !ImpersonateHelper::isPageRequest()) {
 			return;
 		}
 
@@ -203,7 +203,7 @@ class Module extends CModule {
 	 * e nao depende de JS.
 	 */
 	private function addExitMenuItem(array $state): void {
-		if ((int) $this->getOption('menu_exit_item', 1) !== 1) {
+		if ((int) ImpersonateHelper::option('menu_exit_item', 1) !== 1) {
 			return;
 		}
 

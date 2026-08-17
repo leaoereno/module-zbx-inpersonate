@@ -119,6 +119,53 @@ class ImpersonateHelper {
 	/** Evita registrar o trap de fatal mais de uma vez por request. */
 	private static bool $trap_installed = false;
 
+	/** Bloco "config" lido do manifest.json em disco (cache por request). */
+	private static ?array $manifest_config = null;
+
+	// -----------------------------------------------------------------------
+	// Configuracao
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Le uma opcao do bloco "config" do manifest.json EM DISCO.
+	 *
+	 * Por que nao usar CModule::getOption(): o Zabbix nao le o manifest a cada
+	 * request. A tabela `module` tem uma coluna `config` que e preenchida quando o
+	 * modulo e REGISTRADO (Scan directory na primeira vez), e a partir dai
+	 * getOption() responde a partir do banco. Editar o manifest.json depois disso
+	 * nao muda nada - chaves novas simplesmente nao existem para o getOption(), que
+	 * devolve o default em silencio.
+	 *
+	 * Na pratica isso significava que TODAS as opcoes adicionadas na 1.2.0 estavam
+	 * inertes num frontend que ja tinha o modulo registrado desde a 1.1.x: era
+	 * preciso desregistrar e reescanear o modulo so para trocar um valor.
+	 *
+	 * Lendo do arquivo, a configuracao volta a ser o que o operador espera - editou
+	 * o manifest naquele frontend, vale naquele frontend. Isso tambem casa com o
+	 * modelo de deploy por git com um checkout por no.
+	 *
+	 * @return mixed
+	 */
+	public static function option(string $name, $default = null) {
+		if (self::$manifest_config === null) {
+			self::$manifest_config = [];
+
+			// helper/ImpersonateHelper.php -> raiz do modulo.
+			$file = dirname(__DIR__).'/manifest.json';
+
+			if (is_readable($file)) {
+				$manifest = json_decode((string) file_get_contents($file), true);
+
+				if (is_array($manifest) && array_key_exists('config', $manifest)
+						&& is_array($manifest['config'])) {
+					self::$manifest_config = $manifest['config'];
+				}
+			}
+		}
+
+		return array_key_exists($name, self::$manifest_config) ? self::$manifest_config[$name] : $default;
+	}
+
 	// -----------------------------------------------------------------------
 	// Diagnostico
 	// -----------------------------------------------------------------------
