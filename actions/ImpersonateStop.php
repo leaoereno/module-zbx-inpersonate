@@ -90,7 +90,9 @@ class ImpersonateStop extends CController {
 			// disso e pedir para o frontend quebrar. So o redirect para o login.
 			ImpersonateHelper::debug('stop: sem sessao de origem para restaurar - redirecionando para o login');
 
-			$this->setResponse(new CControllerResponseRedirect('index.php?reconnect=1'));
+			$this->setResponse(new CControllerResponseRedirect(
+				(new \CUrl('index.php'))->setArgument('reconnect', 1)->getUrl()
+			));
 
 			return;
 		}
@@ -120,6 +122,8 @@ class ImpersonateStop extends CController {
 			// nada a fazer - o redirect abaixo ainda vale
 		}
 
-		$this->setResponse(new CControllerResponseRedirect('index.php?reconnect=1'));
+		$this->setResponse(new CControllerResponseRedirect(
+			(new \CUrl('index.php'))->setArgument('reconnect', 1)->getUrl()
+		));
 	}
 }
