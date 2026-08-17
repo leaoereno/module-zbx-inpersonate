@@ -24,135 +24,16 @@ $type_badge = static function (?int $type): array {
 
 $ttl = (int) $data['config']['session_ttl'];
 $readonly = (int) $data['config']['readonly'] === 1;
+$require_reason = (int) $data['config']['require_reason'] === 1;
 ?>
-<style>
-:root {
-    --c-bg:#f4f6f9; --c-card:#fff; --c-border:#dde3ec;
-    --c-accent:#1565c0; --c-accent-light:#e8f0fe; --c-accent-hover:#0d47a1;
-    --c-text:#1a1f36; --c-muted:#6b7a99;
-    --c-success:#1b7e47; --c-success-bg:#e8f5e9;
-    --c-danger:#b71c1c;  --c-danger-bg:#fff5f5; --c-danger-border:#f5c6c6;
-    --c-warn:#bf6000;    --c-warn-bg:#fff8e1;    --c-warn-border:#ffe082;
-    --c-shadow:0 1px 4px rgba(0,0,0,.08);
-    --c-shadow-md:0 4px 6px rgba(0,0,0,.05),0 2px 4px rgba(0,0,0,.04);
-    --c-term-bg:#0d1117; --c-term-fg:#c9d1d9; --c-term-border:#30363d;
-}
-* { box-sizing:border-box; }
-
-.im-wrap { padding:16px 18px; }
-.im-title { font-size:19px; font-weight:800; color:var(--c-text); margin-bottom:4px; }
-.im-sub { font-size:12px; color:var(--c-muted); margin-bottom:16px; }
-.im-build { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:10px;
-    background:#f1f5f9; color:#64748b; font-size:10px; font-weight:700;
-    font-family:'JetBrains Mono','Courier New',monospace; letter-spacing:.3px; }
-
-.im-callout { display:flex; gap:12px; align-items:flex-start; background:var(--c-warn-bg);
-    border:1px solid var(--c-warn-border); border-radius:10px; padding:12px 16px; margin-bottom:16px; }
-.im-callout-danger { background:var(--c-danger-bg); border-color:var(--c-danger-border); }
-.im-callout-icon { font-size:20px; line-height:1.2; }
-.im-callout-title { font-size:13px; font-weight:700; color:var(--c-warn); margin-bottom:4px; }
-.im-callout-body { font-size:12px; color:var(--c-text); line-height:1.55; }
-.im-callout-body code { background:rgba(0,0,0,.06); padding:1px 5px; border-radius:4px;
-    font-family:'JetBrains Mono','Courier New',monospace; font-size:11px; }
-
-.im-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:16px; }
-.im-stat { background:var(--c-card); border:1px solid var(--c-border); border-radius:10px;
-    box-shadow:var(--c-shadow); padding:12px 16px; }
-.im-stat-num { font-size:22px; font-weight:800; color:var(--c-text); line-height:1.1; }
-.im-stat-lbl { font-size:10px; font-weight:700; color:var(--c-muted);
-    text-transform:uppercase; letter-spacing:.6px; margin-top:4px; }
-
-.im-filter { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-bottom:14px; }
-.form-group { margin-bottom:0; }
-.form-label { font-size:11px; font-weight:700; color:var(--c-muted);
-    text-transform:uppercase; letter-spacing:.4px; margin-bottom:5px; display:block; }
-.form-input { width:260px; padding:8px 11px; border:1px solid var(--c-border); border-radius:7px;
-    font-size:13px; color:var(--c-text); background:#fff; }
-.form-input:focus { outline:2px solid var(--c-accent); border-color:var(--c-accent); }
-select.form-input { height:auto !important; min-height:38px !important; line-height:1.4 !important;
-    box-sizing:border-box !important; -webkit-appearance:menulist !important;
-    appearance:menulist !important; padding:8px 11px !important; width:200px; }
-select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
-
-.btn { display:inline-flex; align-items:center; justify-content:center; gap:6px;
-    padding:0 18px; height:36px; border-radius:7px; cursor:pointer; font-size:13px;
-    font-weight:600; border:none; line-height:1; white-space:nowrap; transition:all .15s;
-    font-family:inherit; text-decoration:none; }
-.btn-primary { background:var(--c-accent); color:#fff; }
-.btn-primary:hover { background:var(--c-accent-hover); }
-.btn-primary:disabled { background:#9eb4d4; cursor:not-allowed; }
-.btn-outline { background:#fff; color:var(--c-text); border:1px solid var(--c-border); }
-.btn-outline:hover { border-color:var(--c-accent); color:var(--c-accent); background:var(--c-accent-light); }
-.btn-danger-outline { background:#fff; color:var(--c-danger); border:1px solid var(--c-danger-border); }
-.btn-danger-outline:hover { background:var(--c-danger-bg); }
-.btn-danger-outline:disabled { color:#c7b1b1; border-color:#eee; cursor:not-allowed; background:#fafafa; }
-.btn-sm { height:30px; padding:0 12px; font-size:12px; }
-
-.badge { display:inline-flex; align-items:center; gap:3px; padding:3px 9px; border-radius:20px;
-    font-size:11px; font-weight:600; white-space:nowrap; }
-.badge-ok { background:var(--c-success-bg); color:var(--c-success); }
-.badge-warn { background:var(--c-warn-bg); color:var(--c-warn); }
-.badge-err { background:var(--c-danger-bg); color:var(--c-danger); }
-.badge-info { background:var(--c-accent-light); color:var(--c-accent); }
-.badge-gray { background:#f1f5f9; color:#64748b; }
-
-.card { background:var(--c-card); border:1px solid var(--c-border); border-radius:10px;
-    box-shadow:var(--c-shadow); overflow:hidden; }
-.card-hdr { padding:14px 18px; border-bottom:1px solid var(--c-border); background:var(--c-bg); }
-.card-hdr h3 { font-size:15px; font-weight:700; color:var(--c-text); margin:0; }
-.card-hdr p { font-size:12px; color:var(--c-muted); margin:4px 0 0; }
-
-.tbl { width:100%; border-collapse:collapse; font-size:13px; }
-.tbl th { background:var(--c-bg); font-weight:600; padding:10px 14px; text-align:left;
-    border-bottom:2px solid var(--c-border); color:var(--c-muted);
-    font-size:11px; text-transform:uppercase; letter-spacing:.5px; white-space:nowrap; }
-.tbl td { padding:10px 14px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
-.tbl tr:last-child td { border-bottom:none; }
-.tbl tr:hover td { background:#fafbff; }
-.tbl .mono { font-family:'JetBrains Mono','Courier New',monospace; font-size:11px; color:var(--c-muted); }
-.im-user { font-weight:700; color:var(--c-text); }
-.im-fullname { font-size:11px; color:var(--c-muted); }
-.im-groups { font-size:11px; color:var(--c-muted); max-width:260px; }
-.im-actions { display:flex; gap:6px; justify-content:flex-end; }
-.im-block { font-size:11px; color:var(--c-muted); font-style:italic; }
-
-.empty { padding:48px 20px; text-align:center; }
-.empty-icon { font-size:48px; display:block; margin-bottom:14px; line-height:1; }
-.empty-title { font-size:15px; font-weight:700; color:var(--c-text); margin-bottom:6px; }
-.empty-desc { font-size:13px; color:var(--c-muted); }
-
-.modal-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45);
-    z-index:9000; align-items:center; justify-content:center; }
-.modal-backdrop.open { display:flex; }
-.modal-box { background:#fff; border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,.2);
-    width:840px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; }
-.modal-hdr { padding:14px 18px; border-bottom:1px solid var(--c-border);
-    display:flex; align-items:center; justify-content:space-between; }
-.modal-hdr h3 { margin:0; font-size:15px; font-weight:700; color:var(--c-text); }
-.modal-body { padding:18px; flex:1; overflow-y:auto; white-space:normal;
-    word-wrap:break-word; overflow-wrap:break-word; }
-.modal-footer { padding:12px 18px; border-top:1px solid var(--c-border);
-    display:flex; gap:8px; justify-content:flex-end; }
-.modal-close { background:none; border:none; font-size:20px; cursor:pointer; color:var(--c-muted); line-height:1; }
-
-.im-sec { margin-bottom:18px; }
-.im-sec-title { font-size:11px; font-weight:700; color:var(--c-muted); text-transform:uppercase;
-    letter-spacing:.6px; margin-bottom:8px; padding-bottom:5px; border-bottom:1px solid var(--c-border); }
-.im-kv { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px 16px; }
-.im-kv div { font-size:12px; color:var(--c-text); }
-.im-kv span { color:var(--c-muted); display:block; font-size:10px; text-transform:uppercase;
-    letter-spacing:.4px; font-weight:700; }
-.im-chiplist { display:flex; flex-wrap:wrap; gap:5px; }
-
-.status-msg { font-size:12px; font-weight:600; padding:8px 12px; border-radius:7px; margin-bottom:12px; display:none; }
-.status-msg.ok { display:block; background:var(--c-success-bg); color:var(--c-success); }
-.status-msg.err { display:block; background:var(--c-danger-bg); color:var(--c-danger); }
-</style>
+<?= \Modules\ZbxImpersonate\Helper\ImpersonateAssets::css() ?>
 
 <div class="im-wrap">
     <div class="im-title">🎭 Impersonate</div>
     <div class="im-sub">
-        Assuma a sessao de um usuario do Zabbix para reproduzir exatamente o que ele ve.
+        Assuma a sessão de um usuário <strong>User</strong> ou <strong>Admin</strong> do Zabbix e veja a
+        interface exatamente como ele a vê &mdash; mesmas permissões, mesmo tema, mesmo idioma e os
+        mesmos erros de tela.
         <span class="im-build">
             v<?= $e($data['config']['version']) ?> &middot; servido por <?= $e($data['config']['hostname']) ?>
         </span>
@@ -163,29 +44,52 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
     <div class="im-callout">
         <div class="im-callout-icon">🔒</div>
         <div>
-            <div class="im-callout-title">Politica ativa deste modulo</div>
+            <div class="im-callout-title">Política ativa deste módulo</div>
             <div class="im-callout-body">
-                Modo <strong><?= $readonly ? 'somente leitura' : 'leitura e escrita' ?></strong> durante a
-                impersonacao&nbsp;&middot;
-                expiracao automatica em <strong><?= $ttl > 0 ? (int) round($ttl / 60).' minutos' : 'nunca' ?></strong>&nbsp;&middot;
-                alvos Super Admin <strong><?= (int) $data['config']['block_super_admin_target'] === 1 ? 'bloqueados' : 'permitidos' ?></strong>.
-                Toda impersonacao e gravada em <code>module_impersonate_log</code> e tambem gera um
-                <code>Login</code> no audit log nativo do Zabbix, em nome do usuario alvo.
+                Modo <strong><?= $readonly ? 'somente leitura' : 'leitura e escrita' ?></strong><?= $readonly ? ' ('.$e($data['config']['readonly_mode']).')' : '' ?> durante a
+                impersonação&nbsp;&middot;
+                expiração automática em <strong><?= $ttl > 0 ? (int) round($ttl / 60).' minutos' : 'nunca' ?></strong>&nbsp;&middot;
+                alvos Super Admin <strong><?= (int) $data['config']['block_super_admin_target'] === 1 ? 'bloqueados' : 'permitidos' ?></strong>&nbsp;&middot;
+                banner de aviso <strong><?= (int) $data['config']['banner'] === 1 ? 'ligado' : 'desligado' ?></strong>&nbsp;&middot;
+                motivo obrigatório <strong><?= $require_reason ? 'sim' : 'não' ?></strong>.
+                Toda impersonação é gravada em <code>module_impersonate_log</code> e também gera um
+                <code>Login</code> no audit log nativo do Zabbix, em nome do usuário alvo.
+                <div style="margin-top:8px;">
+                    Erros como <em>"No permissions to referred object"</em> ou <em>"Invalid parameter Item"</em>
+                    aparecendo nos widgets durante a impersonação <strong>não são falha do módulo</strong>:
+                    é o que o usuário realmente vê &mdash; e normalmente é o achado do troubleshooting.
+                </div>
             </div>
         </div>
     </div>
+
+    <?php if ((int) $data['stale_closed'] > 0): ?>
+    <div class="im-callout">
+        <div class="im-callout-icon">🧹</div>
+        <div>
+            <div class="im-callout-title">
+                <?= (int) $data['stale_closed'] ?> evento(s) de impersonação estavam abertos e foram encerrados
+            </div>
+            <div class="im-callout-body">
+                Impersonações que nunca receberam um encerramento (navegador fechado, frontend reiniciado)
+                ficam com <code>ended=0</code> no log e retêm o token da sessão de origem. Foram fechadas
+                agora com <code>end_reason=stale</code>.
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <?php if ($data['roles_missing_access']): ?>
     <div class="im-callout im-callout-danger">
         <div class="im-callout-icon">🔒</div>
         <div>
             <div class="im-callout-title" style="color:var(--c-danger);">
-                <?= count($data['roles_missing_access']) ?> role(s) sem acesso ao modulo &mdash; usuarios delas nao podem ser impersonados
+                <?= count($data['roles_missing_access']) ?> role(s) sem acesso ao módulo &mdash; usuários delas não podem ser impersonados
             </div>
             <div class="im-callout-body">
-                Se a role do usuario alvo nao enxerga este modulo, o Zabbix nem carrega o
-                <code>Module.php</code> durante a impersonacao: o modo somente-leitura e o item
-                <em>Sair da impersonacao</em> deixariam de existir. Por isso o modulo recusa.
+                Se a role do usuário alvo não enxerga este módulo, o Zabbix nem carrega o
+                <code>Module.php</code> durante a impersonação: o modo somente-leitura e o item
+                <em>Sair da impersonação</em> deixariam de existir. Por isso o módulo recusa.
                 <div style="margin-top:8px;">
                     Libere em <strong>Users &rarr; User roles &rarr; &lt;role&gt; &rarr; Access to modules</strong>, marcando
                     <em>Impersonate</em> nestas roles:
@@ -196,12 +100,10 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
                     <?php endforeach; ?>
                 </div>
                 <div style="margin-top:12px;">
-                    <button type="button" class="btn btn-primary btn-sm" id="im-grant">
-                        Liberar o modulo em todas as roles
-                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" id="im-grant">Liberar o módulo nas roles que precisam</button>
                     <span class="form-hint" style="margin-left:10px;">
-                        Marca apenas <em>Access to modules &rarr; Impersonate</em>. Nenhuma outra permissao da role e
-                        tocada, e liberar o modulo nao da poder algum ao usuario comum &mdash; todas as telas exigem
+                        Marca apenas <em>Access to modules &rarr; Impersonate</em>. Nenhuma outra permissão da role é
+                        tocada, e liberar o módulo não dá poder algum ao usuário comum &mdash; todas as telas exigem
                         Super Admin.
                     </span>
                 </div>
@@ -213,11 +115,11 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
     <div class="im-stats">
         <div class="im-stat">
             <div class="im-stat-num"><?= (int) $data['stats']['total'] ?></div>
-            <div class="im-stat-lbl">Usuarios listados</div>
+            <div class="im-stat-lbl">Usuários listados</div>
         </div>
         <div class="im-stat">
             <div class="im-stat-num"><?= (int) $data['stats']['impersonable'] ?></div>
-            <div class="im-stat-lbl">Impersonaveis</div>
+            <div class="im-stat-lbl">Impersonáveis</div>
         </div>
         <div class="im-stat">
             <div class="im-stat-num"><?= (int) $data['stats']['blocked'] ?></div>
@@ -251,25 +153,25 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
 
     <div class="card">
         <div class="card-hdr">
-            <h3>👥 Usuarios</h3>
-            <p>Clique em <em>Perfil</em> para inspecionar permissoes sem trocar de sessao.</p>
+            <h3>👥 Usuários</h3>
+            <p>Clique em <em>Perfil</em> para inspecionar permissões sem trocar de sessão.</p>
         </div>
         <?php if (!$data['users']): ?>
             <div class="empty">
                 <span class="empty-icon">🔍</span>
-                <div class="empty-title">Nenhum usuario encontrado</div>
+                <div class="empty-title">Nenhum usuário encontrado</div>
                 <div class="empty-desc">Ajuste os filtros e tente novamente.</div>
             </div>
         <?php else: ?>
         <table class="tbl">
             <thead>
                 <tr>
-                    <th>Usuario</th>
+                    <th>Usuário</th>
                     <th>Role</th>
                     <th>Tipo</th>
                     <th>Grupos</th>
-                    <th>Ultimo acesso</th>
-                    <th style="text-align:right;">Acoes</th>
+                    <th>Último acesso</th>
+                    <th style="text-align:right;">Ações</th>
                 </tr>
             </thead>
             <tbody>
@@ -331,6 +233,8 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
 <script>
 (function () {
     'use strict';
+
+    var REQUIRE_REASON = <?= $require_reason ? 'true' : 'false' ?>;
 
     var modal = document.getElementById('im-modal');
     var modalBody = document.getElementById('im-modal-body');
@@ -405,17 +309,17 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
         var u = p.user;
         var html = '';
 
-        html += section('Identificacao', kv([
+        html += section('Identificação', kv([
             ['Username', u.username],
             ['Nome', u.fullname || '-'],
             ['Role', u.role_name + ' (' + u.role_type_label + ')'],
             ['Origem', u.provisioned ? 'Provisionado (SSO/LDAP)' : 'Interno'],
             ['Idioma / Tema', u.lang + ' / ' + u.theme],
             ['Timezone', u.timezone],
-            ['Autologin', u.autologin ? 'Sim' : 'Nao'],
+            ['Autologin', u.autologin ? 'Sim' : 'Não'],
             ['Autologout', u.autologout],
             ['Refresh', u.refresh],
-            ['Linhas por pagina', u.rows_per_page],
+            ['Linhas por página', u.rows_per_page],
             ['URL inicial', u.url || '-'],
             ['Status', u.disabled ? 'DESABILITADO' : (u.gui_disabled ? 'GUI desabilitada' : 'Ativo')]
         ]));
@@ -423,39 +327,40 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
         if (u.attempt_failed > 0) {
             html += section('Tentativas de login falhas', kv([
                 ['Falhas', u.attempt_failed],
-                ['Ultimo IP', u.attempt_ip || '-'],
+                ['Último IP', u.attempt_ip || '-'],
                 ['Quando', u.attempt_clock]
             ]));
         }
 
-        html += section('Grupos de usuario', table(
-            ['Grupo', 'Usuarios', 'GUI access', 'Debug'],
+        html += section('Grupos de usuário', table(
+            ['Grupo', 'Usuários', 'GUI access', 'Debug'],
             p.groups.map(function (g) { return [g.name, g.users_status, g.gui_access, g.debug_mode]; })
         ));
 
-        html += section('Permissoes efetivas em host groups', table(
-            ['Host group', 'Permissao'],
+        html += section('Permissões efetivas em host groups', table(
+            ['Host group', 'Permissão'],
             p.permissions.map(function (x) { return [x.name, x.permission]; })
         ));
 
-        html += section('Medias / notificacoes', table(
-            ['Tipo', 'Enviar para', 'Media', 'Media type', 'Periodo'],
+        html += section('Mídias / notificações', table(
+            ['Tipo de mídia', 'Enviar para', 'Mídia ativa', 'Media type ativo', 'Período'],
             p.medias.map(function (m) { return [m.media_type, m.sendto, m.active, m.mt_status, m.period]; })
         ));
 
-        html += section('Sessoes ativas', table(
-            ['Session (prefixo)', 'Ultimo acesso'],
+        html += section('Sessões ativas', table(
+            ['Session (prefixo)', 'Último acesso'],
             p.sessions.map(function (s) { return [s.sessionid, s.lastaccess]; })
         ));
 
         html += section('UI liberada pela role', chips(p.role_rules.ui_allowed, 'badge-ok'));
         html += section('UI negada pela role', chips(p.role_rules.ui_denied, 'badge-err'));
-        html += section('Acoes liberadas', chips(p.role_rules.actions_allowed, 'badge-info'));
+        html += section('Ações liberadas', chips(p.role_rules.actions_allowed, 'badge-info'));
 
-        html += section('Historico de impersonacao deste usuario', table(
-            ['Quem impersonou', 'Inicio', 'Fim', 'Motivo', 'Somente leitura'],
+        html += section('Histórico de impersonação deste usuário', table(
+            ['Quem impersonou', 'Início', 'Fim', 'Justificativa', 'Encerramento', 'Somente leitura'],
             p.history.map(function (h) {
-                return [h.actor_username, h.started, h.ended, h.end_reason || '-', h.readonly ? 'Sim' : 'Nao'];
+                return [h.actor_username, h.started, h.ended, h.reason || '-', h.end_reason || '-',
+                    h.readonly ? 'Sim' : 'Não'];
             })
         ));
 
@@ -477,21 +382,12 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
     var grantBtn = document.getElementById('im-grant');
 
     if (grantBtn) {
-        grantBtn.addEventListener('click', function () {
-            if (!window.confirm(
-                'Liberar o modulo Impersonate em todas as roles que ainda nao o enxergam?\n\n' +
-                'Isso marca APENAS "Access to modules -> Impersonate". Nenhuma outra permissao ' +
-                'da role e alterada.\n\n' +
-                'Sem esse acesso o Zabbix nao carrega o modulo durante a impersonacao, e o modo ' +
-                'somente-leitura e o botao de sair deixam de existir.'
-            )) {
-                return;
-            }
+        var GRANT_LABEL = 'Liberar o módulo nas roles que precisam';
 
-            grantBtn.disabled = true;
+        function applyGrant() {
             grantBtn.textContent = 'Liberando...';
 
-            post('zbx.impersonate.grant', { submit_action: 'grant' })
+            return post('zbx.impersonate.grant', { submit_action: 'grant', dry_run: '0' })
                 .then(function (res) {
                     if (res && res.error && res.error.title) {
                         showStatus(res.error.title, false);
@@ -499,7 +395,7 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
                     }
 
                     if (!res || !res.success) {
-                        showStatus((res && res.error) || 'Falha ao liberar o modulo.', false);
+                        showStatus((res && res.error) || 'Falha ao liberar o módulo.', false);
                         return;
                     }
 
@@ -509,7 +405,7 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
                         parts.push(res.granted.length + ' role(s) liberada(s): ' + res.granted.join(', '));
                     }
                     if (res.already) {
-                        parts.push(res.already + ' ja tinha(m) acesso');
+                        parts.push(res.already + ' já tinha(m) acesso');
                     }
                     if (res.readonly.length) {
                         parts.push('ignorada(s) por serem readonly: ' + res.readonly.join(', '));
@@ -523,11 +419,57 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
                     if (res.granted.length) {
                         window.setTimeout(function () { window.location.reload(); }, 1800);
                     }
+                });
+        }
+
+        grantBtn.addEventListener('click', function () {
+            grantBtn.disabled = true;
+            grantBtn.textContent = 'Verificando...';
+
+            // Passo 1: dry-run. Alterar permissão de role sem dizer QUAIS roles seriam
+            // tocadas e pedir confirmacao no escuro.
+            post('zbx.impersonate.grant', { submit_action: 'preview', dry_run: '1' })
+                .then(function (res) {
+                    if (res && res.error && res.error.title) {
+                        showStatus(res.error.title, false);
+                        return;
+                    }
+
+                    if (!res || !res.success) {
+                        showStatus((res && res.error) || 'Falha ao verificar as roles.', false);
+                        return;
+                    }
+
+                    if (!res.would_grant.length) {
+                        var msg = 'Nenhuma role a alterar.';
+
+                        if (res.readonly.length) {
+                            msg += ' Somente roles readonly pendentes (não editáveis pela API): ' +
+                                res.readonly.join(', ') + '.';
+                        }
+
+                        showStatus(msg, true);
+                        return;
+                    }
+
+                    if (!window.confirm(
+                        'Liberar o módulo Impersonate nestas ' + res.would_grant.length + ' role(s)?\n\n' +
+                        '  · ' + res.would_grant.join('\n  · ') + '\n\n' +
+                        'Isso marca APENAS "Access to modules -> Impersonate". Nenhuma outra permissão ' +
+                        'da role é alterada.\n\n' +
+                        'Sem esse acesso o Zabbix não carrega o módulo durante a impersonação, e o modo ' +
+                        'somente-leitura e o botão de sair deixam de existir.'
+                    )) {
+                        showStatus('Nada foi alterado.', true);
+                        return;
+                    }
+
+                    return applyGrant();
                 })
                 .catch(function (err) { showStatus('Erro de rede: ' + err, false); })
                 .finally(function () {
                     grantBtn.disabled = false;
-                    grantBtn.textContent = 'Liberar o modulo em todas as roles';
+                    grantBtn.textContent = GRANT_LABEL;
                 });
         });
     }
@@ -564,18 +506,42 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
         var username = impBtn.dataset.username;
 
         if (!window.confirm(
-            'Assumir a sessao de "' + username + '"?\n\n' +
-            'Voce sera deslogado da sua propria sessao ate encerrar a impersonacao ' +
-            'pelo item "Sair da impersonacao" no topo do menu lateral.\n\n' +
-            'Esta acao fica registrada no log de auditoria.'
+            'Assumir a sessão de "' + username + '"?\n\n' +
+            'Você sai da sua própria sessão até encerrar a impersonação pelo item ' +
+            '"Sair da impersonação" no topo do menu lateral.\n\n' +
+            'Esta ação fica registrada no log de auditoria.'
         )) {
             return;
+        }
+
+        var reason = '';
+
+        if (REQUIRE_REASON) {
+            reason = window.prompt(
+                'Motivo da impersonação (obrigatório, vai para o log de auditoria):\n\n' +
+                'Ex.: "ticket 12345 - usuário relata dashboard vazio"'
+            );
+
+            if (reason === null) {
+                return;
+            }
+
+            reason = reason.trim();
+
+            if (reason === '') {
+                showStatus('Motivo obrigatório: a impersonação não foi iniciada.', false);
+                return;
+            }
         }
 
         impBtn.disabled = true;
         impBtn.textContent = 'Entrando...';
 
-        post('zbx.impersonate.start', { userid: impBtn.dataset.impersonate, submit_action: 'start' })
+        post('zbx.impersonate.start', {
+                userid: impBtn.dataset.impersonate,
+                reason: reason,
+                submit_action: 'start'
+            })
             .then(function (res) {
                 if (res && res.error && res.error.title) {
                     showStatus(res.error.title, false);
@@ -585,13 +551,13 @@ select.form-input option { font-size:13px; padding:6px; line-height:1.4; }
                 }
 
                 if (!res || !res.success) {
-                    showStatus((res && res.error) || 'Falha ao iniciar a impersonacao.', false);
+                    showStatus((res && res.error) || 'Falha ao iniciar a impersonação.', false);
                     impBtn.disabled = false;
                     impBtn.textContent = 'Impersonar';
                     return;
                 }
 
-                showStatus('Impersonacao iniciada. Redirecionando...', true);
+                showStatus('Impersonação iniciada. Redirecionando...', true);
                 window.location.href = res.redirect;
             })
             .catch(function (err) {

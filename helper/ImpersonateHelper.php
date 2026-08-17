@@ -28,6 +28,35 @@ class ImpersonateHelper {
 	public const END_MANUAL  = 'manual';
 	public const END_EXPIRED = 'expired';
 	public const END_INVALID = 'invalid';
+	public const END_LOGOUT  = 'logout';
+	public const END_STALE   = 'stale';
+
+	/** Prefixo que marca um origin_sessionid cifrado em repouso. */
+	private const ENC_PREFIX = 'enc:';
+
+	/**
+	 * Actions de logout do Zabbix. Se o usuario sair por aqui em vez de usar
+	 * "Sair da impersonacao", o modulo precisa fechar o evento no log e derrubar
+	 * a sessao de origem - senao a linha fica com ended=0 para sempre e sobra
+	 * uma sessao Super Admin orfa no banco.
+	 */
+	public const LOGOUT_ACTIONS = ['userprofile.logout', 'user.logout', 'logout'];
+
+	/**
+	 * A request atual e um logout do Zabbix?
+	 *
+	 * Duas formas convivem no core: a action moderna (userprofile.logout) e o
+	 * caminho legado index.php?reconnect=1 - neste ultimo CLegacyAction::getAction()
+	 * devolve "index.php", que nao diz nada, entao a deteccao e pelo parametro.
+	 * Nenhuma outra tela do Zabbix usa "reconnect".
+	 */
+	public static function isLogoutRequest(string $action): bool {
+		if (in_array(strtolower($action), self::LOGOUT_ACTIONS, true)) {
+			return true;
+		}
+
+		return array_key_exists('reconnect', $_REQUEST);
+	}
 
 	/**
 	 * Verbos tratados como escrita quando o modo somente-leitura esta ativo.
@@ -37,9 +66,27 @@ class ImpersonateHelper {
 	 */
 	public const WRITE_SUFFIXES = [
 		'create', 'update', 'delete', 'massupdate', 'massdelete', 'massadd',
+		'massenable', 'massdisable', 'massclear', 'massunlink',
 		'enable', 'disable', 'execute', 'execute_now', 'import', 'rename',
 		'copy', 'clear', 'reset', 'unlink', 'activate', 'deactivate',
-		'provision', 'unprovision', 'acknowledge', 'save', 'scriptexec'
+		'provision', 'unprovision', 'acknowledge', 'save', 'scriptexec',
+		'send', 'mute', 'unmute', 'pause', 'resume', 'sync', 'restore',
+		'apply', 'upload'
+	];
+
+	/**
+	 * Segmentos que caracterizam LEITURA. Usados apenas no modo whitelist
+	 * (readonly_mode = "whitelist"), em que tudo que NAO contem um destes
+	 * segmentos e recusado - default-deny.
+	 *
+	 * O modo blacklist continua sendo o default porque ele nunca recusa uma
+	 * action de leitura por engano, e recusar leitura distorceria exatamente o
+	 * que o modulo existe para mostrar: a tela como o usuario a ve.
+	 */
+	public const READ_SUFFIXES = [
+		'view', 'list', 'edit', 'get', 'check', 'popup', 'php', 'menu',
+		'search', 'export', 'print', 'widget', 'refresh', 'sort', 'filter',
+		'select', 'test', 'validate', 'compare', 'download', 'stats'
 	];
 
 	/**
@@ -60,12 +107,36 @@ class ImpersonateHelper {
 	/** A tabela de auditoria esta realmente utilizavel? */
 	private static bool $schema_ok = false;
 
+	/** Liga o error_log de diagnostico (option "debug" do manifest). */
+	private static bool $debug = false;
+
+	// -----------------------------------------------------------------------
+	// Diagnostico
+	// -----------------------------------------------------------------------
+
+	public static function setDebug(bool $on): void {
+		self::$debug = $on;
+	}
+
+	/**
+	 * Mensagem de diagnostico no error_log do PHP.
+	 *
+	 * Os catch(\Throwable) do modulo sao silenciosos de proposito (nao dar tela
+	 * branca no frontend), mas silencio total torna o modulo indepuravel em
+	 * producao. Com debug=1 no manifest o motivo real aparece no log do PHP-FPM.
+	 */
+	public static function debug(string $message): void {
+		if (self::$debug) {
+			\error_log('[zbx-impersonate] '.$message);
+		}
+	}
+
 	// -----------------------------------------------------------------------
 	// Schema
 	// -----------------------------------------------------------------------
 
 	/**
-	 * Cria a tabela de auditoria se ela ainda nao existir.
+	 * Cria/atualiza a tabela de auditoria se necessario.
 	 *
 	 * Nao existe hook onEnable() no core do Zabbix, entao o provisionamento e
 	 * feito de forma idempotente e sob demanda (so quando alguma action precisa
@@ -83,17 +154,48 @@ class ImpersonateHelper {
 		}
 
 		self::$schema_checked = true;
+		self::$schema_ok = false;
 
-		$created = \DBexecute(
+		$is_pgsql = self::isPgsql();
+
+		$created = $is_pgsql ? self::createTablePgsql() : self::createTableMysql();
+
+		if (!$created) {
+			self::debug('ensureSchema: CREATE TABLE falhou (privilegio de CREATE no usuario do banco?)');
+
+			return false;
+		}
+
+		self::migrateSchema($is_pgsql);
+
+		// Le de verdade: cobre o caso de tabela existente porem inacessivel/incompativel.
+		self::$schema_ok = \DBselect('SELECT origin_sessionid,reason FROM '.self::LOG_TABLE, 1) !== false;
+
+		if (!self::$schema_ok) {
+			self::debug('ensureSchema: tabela existe mas nao pode ser lida com as colunas esperadas');
+		}
+
+		return self::$schema_ok;
+	}
+
+	private static function isPgsql(): bool {
+		global $DB;
+
+		return (string) ($DB['TYPE'] ?? '') === ZBX_DB_POSTGRESQL;
+	}
+
+	private static function createTableMysql(): bool {
+		return (bool) \DBexecute(
 			'CREATE TABLE IF NOT EXISTS '.self::LOG_TABLE.' ('.
 				'logid BIGINT UNSIGNED NOT NULL,'.
 				'actor_userid BIGINT UNSIGNED NOT NULL,'.
 				'actor_username VARCHAR(100) NOT NULL DEFAULT \'\','.
 				'target_userid BIGINT UNSIGNED NOT NULL,'.
 				'target_username VARCHAR(100) NOT NULL DEFAULT \'\','.
-				'origin_sessionid VARCHAR(32) NOT NULL DEFAULT \'\','.
+				'origin_sessionid VARCHAR(255) NOT NULL DEFAULT \'\','.
 				'clientip VARCHAR(45) NOT NULL DEFAULT \'\','.
 				'user_agent VARCHAR(255) NOT NULL DEFAULT \'\','.
+				'reason VARCHAR(255) NOT NULL DEFAULT \'\','.
 				'readonly INT NOT NULL DEFAULT 1,'.
 				'started INT NOT NULL DEFAULT 0,'.
 				'ended INT NOT NULL DEFAULT 0,'.
@@ -104,38 +206,96 @@ class ImpersonateHelper {
 				'KEY idx_imp_target (target_userid)'.
 			') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
 		);
+	}
 
-		if (!$created) {
-			self::$schema_ok = false;
+	/**
+	 * Mesma tabela em PostgreSQL.
+	 *
+	 * O Zabbix 7.0 roda em MySQL/MariaDB e em PostgreSQL/TimescaleDB; a versao
+	 * anterior deste modulo so funcionava em MySQL (BIGINT UNSIGNED, ENGINE=,
+	 * KEY inline - tudo invalido em PG).
+	 */
+	private static function createTablePgsql(): bool {
+		$ok = (bool) \DBexecute(
+			'CREATE TABLE IF NOT EXISTS '.self::LOG_TABLE.' ('.
+				'logid BIGINT NOT NULL,'.
+				'actor_userid BIGINT NOT NULL,'.
+				'actor_username VARCHAR(100) DEFAULT \'\' NOT NULL,'.
+				'target_userid BIGINT NOT NULL,'.
+				'target_username VARCHAR(100) DEFAULT \'\' NOT NULL,'.
+				'origin_sessionid VARCHAR(255) DEFAULT \'\' NOT NULL,'.
+				'clientip VARCHAR(45) DEFAULT \'\' NOT NULL,'.
+				'user_agent VARCHAR(255) DEFAULT \'\' NOT NULL,'.
+				'reason VARCHAR(255) DEFAULT \'\' NOT NULL,'.
+				'readonly INTEGER DEFAULT 1 NOT NULL,'.
+				'started INTEGER DEFAULT 0 NOT NULL,'.
+				'ended INTEGER DEFAULT 0 NOT NULL,'.
+				'end_reason VARCHAR(32) DEFAULT \'\' NOT NULL,'.
+				'PRIMARY KEY (logid)'.
+			')'
+		);
 
+		if (!$ok) {
 			return false;
 		}
 
-		// Upgrade de instalacoes anteriores a coluna origin_sessionid.
-		//
-		// NAO usar "ADD COLUMN IF NOT EXISTS": isso e extensao do MariaDB e explode
-		// com erro de sintaxe no MySQL - e o \DBexecute() dispara trigger_error(),
-		// que o Zabbix mostra como banner vermelho no topo da tela. Checar antes
-		// pelo information_schema funciona nos dois.
-		$has_column = \DBfetch(\DBselect(
-			'SELECT COLUMN_NAME'.
-			' FROM information_schema.COLUMNS'.
-			' WHERE TABLE_SCHEMA=DATABASE()'.
-				' AND TABLE_NAME='.\zbx_dbstr(self::LOG_TABLE).
-				' AND COLUMN_NAME='.\zbx_dbstr('origin_sessionid')
-		));
+		foreach (['started' => 'idx_imp_started', 'actor_userid' => 'idx_imp_actor',
+				'target_userid' => 'idx_imp_target'] as $column => $index) {
+			\DBexecute('CREATE INDEX IF NOT EXISTS '.$index.' ON '.self::LOG_TABLE.' ('.$column.')', 1);
+		}
 
-		if (!$has_column) {
+		return true;
+	}
+
+	/**
+	 * Upgrade de instalacoes anteriores.
+	 *
+	 * NAO usar "ADD COLUMN IF NOT EXISTS": isso e extensao do MariaDB e explode
+	 * com erro de sintaxe no MySQL - e o \DBexecute() dispara trigger_error(),
+	 * que o Zabbix mostra como banner vermelho no topo da tela. Checar antes
+	 * pelo information_schema funciona nos tres bancos.
+	 */
+	private static function migrateSchema(bool $is_pgsql): void {
+		$origin = self::columnInfo('origin_sessionid');
+
+		if ($origin === null) {
+			// 1.1.0 -> 1.1.1
 			\DBexecute(
 				'ALTER TABLE '.self::LOG_TABLE.
-				' ADD COLUMN origin_sessionid VARCHAR(32) NOT NULL DEFAULT \'\' AFTER target_username'
+				' ADD COLUMN origin_sessionid VARCHAR(255) DEFAULT \'\' NOT NULL'
+			);
+		}
+		elseif ((int) ($origin['character_maximum_length'] ?? 0) < 255) {
+			// 1.1.x -> 1.2.0: o valor passou a ser cifrado em repouso e nao cabe mais em 32.
+			\DBexecute($is_pgsql
+				? 'ALTER TABLE '.self::LOG_TABLE.' ALTER COLUMN origin_sessionid TYPE VARCHAR(255)'
+				: 'ALTER TABLE '.self::LOG_TABLE.' MODIFY origin_sessionid VARCHAR(255) NOT NULL DEFAULT \'\''
 			);
 		}
 
-		// Le de verdade: cobre o caso de tabela existente porem inacessivel/incompativel.
-		self::$schema_ok = \DBselect('SELECT origin_sessionid FROM '.self::LOG_TABLE, 1) !== false;
+		if (self::columnInfo('reason') === null) {
+			\DBexecute(
+				'ALTER TABLE '.self::LOG_TABLE.' ADD COLUMN reason VARCHAR(255) DEFAULT \'\' NOT NULL'
+			);
+		}
+	}
 
-		return self::$schema_ok;
+	/**
+	 * Metadados de uma coluna da tabela de log, ou null se ela nao existir.
+	 */
+	private static function columnInfo(string $column): ?array {
+		// information_schema existe nos dois bancos; so o predicado de schema muda.
+		$schema = self::isPgsql() ? 'table_schema=current_schema()' : 'table_schema=DATABASE()';
+
+		$row = \DBfetch(\DBselect(
+			'SELECT column_name,character_maximum_length'.
+			' FROM information_schema.columns'.
+			' WHERE '.$schema.
+				' AND table_name='.\zbx_dbstr(self::LOG_TABLE).
+				' AND column_name='.\zbx_dbstr($column)
+		));
+
+		return $row ? $row : null;
 	}
 
 	// -----------------------------------------------------------------------
@@ -151,7 +311,8 @@ class ImpersonateHelper {
 	 *
 	 * NOTA: o sessionid do Super Admin NAO fica aqui - o cookie e assinado, mas nao
 	 * cifrado, e um token de sessao privilegiada em texto claro no navegador seria
-	 * um alvo desnecessario. Ele mora em module_impersonate_log, referenciado por logid.
+	 * um alvo desnecessario. Ele mora em module_impersonate_log (cifrado em repouso),
+	 * referenciado por logid.
 	 *
 	 * @return array|null  Estado valido, ou null se nao houver/estiver corrompido.
 	 */
@@ -164,6 +325,7 @@ class ImpersonateHelper {
 		}
 
 		if (!\CEncryptHelper::checkSign(\CEncryptHelper::sign($raw), $sign)) {
+			self::debug('getState: assinatura do estado nao confere - estado descartado');
 			self::clearState();
 
 			return null;
@@ -197,6 +359,9 @@ class ImpersonateHelper {
 		$current_userid = (int) (\CWebUser::$data['userid'] ?? 0);
 
 		if ((int) $state['target_userid'] !== $current_userid) {
+			self::debug(sprintf('getState: estado orfao (target=%d, sessao atual=%d) - encerrando',
+				(int) $state['target_userid'], $current_userid
+			));
 			self::logEnd((int) $state['logid'], self::END_INVALID);
 			self::clearState();
 
@@ -365,8 +530,13 @@ class ImpersonateHelper {
 	 * Importa muito: se o role do alvo nao enxerga o modulo, o CModuleManager nem
 	 * instancia o Module.php durante a impersonacao - ou seja, o guard de
 	 * somente-leitura e o botao de sair simplesmente nao existiriam.
+	 *
+	 * @return bool|null  true = tem acesso, false = nao tem, null = NAO FOI POSSIVEL
+	 *                    determinar. A versao anterior devolvia true nesse ultimo
+	 *                    caso (fail-open numa checagem de seguranca); agora o
+	 *                    indeterminado e explicito e quem chama decide.
 	 */
-	public static function roleHasModuleAccess(string $roleid, string $moduleid): bool {
+	public static function roleHasModuleAccess(string $roleid, string $moduleid): ?bool {
 		if ($roleid === '' || $roleid === '0' || $moduleid === '') {
 			return false;
 		}
@@ -382,13 +552,15 @@ class ImpersonateHelper {
 			]);
 		}
 		catch (\Throwable $e) {
-			// Sem conseguir consultar, nao bloqueia por engano - a trava real
-			// continua sendo o Super Admin ver o motivo na tela.
-			return true;
+			self::debug('roleHasModuleAccess: API::Role()->get falhou: '.$e->getMessage());
+
+			return null;
 		}
 
 		if (!$roles || !array_key_exists('rules', $roles[0])) {
-			return true;
+			self::debug('roleHasModuleAccess: resposta da API sem "rules" para roleid '.$roleid);
+
+			return null;
 		}
 
 		$rules = $roles[0]['rules'];
@@ -428,10 +600,19 @@ class ImpersonateHelper {
 	 * `rules` inteiro seria PIOR: exporia a validacao estrita de `api`, que recusa
 	 * metodos herdados de versoes antigas que a gravacao apenas ignoraria.
 	 *
-	 * @return array  ['granted'=>string[], 'already'=>int, 'readonly'=>string[], 'failed'=>string[], 'error'=>string]
+	 * @param string   $moduleid
+	 * @param string[] $only_roleids  Se nao vazio, mexe SOMENTE nestas roles.
+	 * @param bool     $dry_run       true = so simula e devolve o que faria.
+	 *
+	 * @return array  ['granted'=>string[], 'already'=>int, 'readonly'=>string[], 'failed'=>string[],
+	 *                 'would_grant'=>array[], 'error'=>string]
 	 */
-	public static function grantModuleAccessToAllRoles(string $moduleid): array {
-		$out = ['granted' => [], 'already' => 0, 'readonly' => [], 'failed' => [], 'error' => ''];
+	public static function grantModuleAccessToAllRoles(string $moduleid, array $only_roleids = [],
+			bool $dry_run = false): array {
+
+		$out = ['granted' => [], 'already' => 0, 'readonly' => [], 'failed' => [], 'would_grant' => [],
+			'error' => ''
+		];
 
 		if ($moduleid === '') {
 			$out['error'] = _('Modulo sem moduleid - o modulo esta habilitado em Administration -> Modules?');
@@ -439,12 +620,18 @@ class ImpersonateHelper {
 			return $out;
 		}
 
+		$options = [
+			'output'      => ['roleid', 'name', 'readonly'],
+			'selectRules' => ['modules'],
+			'sortfield'   => 'name'
+		];
+
+		if ($only_roleids) {
+			$options['roleids'] = $only_roleids;
+		}
+
 		try {
-			$roles = \API::Role()->get([
-				'output'      => ['roleid', 'name', 'readonly'],
-				'selectRules' => ['modules'],
-				'sortfield'   => 'name'
-			]);
+			$roles = \API::Role()->get($options);
 		}
 		catch (\Throwable $e) {
 			$out['error'] = _s('Falha ao consultar as roles: %1$s', $e->getMessage());
@@ -464,7 +651,7 @@ class ImpersonateHelper {
 
 			if (array_key_exists('rules', $role) && array_key_exists('modules', $role['rules'])) {
 				foreach ($role['rules']['modules'] as $module) {
-					// Comparacao frouxa de proposito: o get() devolve moduleid como int
+					// Comparacao normalizada: o get() devolve moduleid como int
 					// e status como string.
 					if ((string) $module['moduleid'] === $moduleid) {
 						$has_access = ((int) $module['status'] === 1);
@@ -483,6 +670,11 @@ class ImpersonateHelper {
 			// Super Admin ja sao bloqueados como alvo pela politica do modulo.
 			if ((int) $role['readonly'] === 1) {
 				$out['readonly'][] = $name;
+				continue;
+			}
+
+			if ($dry_run) {
+				$out['would_grant'][] = ['roleid' => (string) $role['roleid'], 'name' => $name];
 				continue;
 			}
 
@@ -528,10 +720,25 @@ class ImpersonateHelper {
 	 * respeita grupo desabilitado / role invalido / GUI access, e ja grava o
 	 * ACTION_LOGIN_SUCCESS no audit log nativo do Zabbix.
 	 *
+	 * Como a sessao passa a ser integralmente a do alvo (lang, theme, timezone,
+	 * refresh, rows_per_page, permissoes, role_rules), a tela renderizada e
+	 * exatamente a que o usuario ve - inclusive os erros dele. Widget reclamando
+	 * "No permissions to referred object" nao e defeito do modulo: e o achado.
+	 *
+	 * @param int   $target_userid
+	 * @param array $opts  ttl, readonly, block_super_admin, require_module_access,
+	 *                     moduleid, reason, encrypt
+	 *
 	 * @return array  ['success' => bool, 'error' => string, 'target' => array|null]
 	 */
-	public static function start(int $target_userid, int $ttl, bool $readonly, bool $block_super_admin,
-			bool $require_module_access, string $moduleid): array {
+	public static function start(int $target_userid, array $opts): array {
+		$ttl = (int) ($opts['ttl'] ?? self::DEFAULT_TTL);
+		$readonly = (bool) ($opts['readonly'] ?? true);
+		$block_super_admin = (bool) ($opts['block_super_admin'] ?? true);
+		$require_module_access = (bool) ($opts['require_module_access'] ?? true);
+		$moduleid = (string) ($opts['moduleid'] ?? '');
+		$reason = mb_substr(trim((string) ($opts['reason'] ?? '')), 0, 255);
+		$encrypt = (bool) ($opts['encrypt'] ?? true);
 
 		$fail = static function (string $message): array {
 			return ['success' => false, 'error' => $message, 'target' => null];
@@ -571,13 +778,26 @@ class ImpersonateHelper {
 			return $fail(_('O usuario guest nao pode ser impersonado.'));
 		}
 
-		if ($require_module_access && !self::roleHasModuleAccess((string) $target['roleid'], $moduleid)) {
-			return $fail(_s(
-				'A role "%1$s" do usuario alvo nao tem acesso ao modulo Impersonate. Sem isso o modo somente-leitura'.
-					' e o botao de sair da impersonacao nao funcionariam. Libere o modulo para essa role em'.
-					' Users -> User roles, ou desative "require_module_access" no manifest.',
-				(string) $target['role_name']
-			));
+		if ($require_module_access) {
+			$has_access = self::roleHasModuleAccess((string) $target['roleid'], $moduleid);
+
+			if ($has_access === null) {
+				return $fail(_s(
+					'Nao foi possivel verificar se a role "%1$s" tem acesso ao modulo Impersonate (falha na API'.
+						' de roles). A impersonacao foi recusada por precaucao. Ligue "debug" no manifest para ver'.
+						' o erro no log do PHP, ou desative "require_module_access".',
+					(string) $target['role_name']
+				));
+			}
+
+			if (!$has_access) {
+				return $fail(_s(
+					'A role "%1$s" do usuario alvo nao tem acesso ao modulo Impersonate. Sem isso o modo'.
+						' somente-leitura e o botao de sair da impersonacao nao funcionariam. Libere o modulo para'.
+						' essa role em Users -> User roles, ou desative "require_module_access" no manifest.',
+					(string) $target['role_name']
+				));
+			}
 		}
 
 		// Confere que a sessao de origem realmente existe e pertence ao ator.
@@ -624,27 +844,19 @@ class ImpersonateHelper {
 
 		if ((int) $user_data['gui_access'] === GROUP_GUI_ACCESS_DISABLED) {
 			// A sessao ja foi criada pelo loginByUsername - nao deixar orfa no banco.
-			\DBexecute(
-				'DELETE FROM sessions'.
-				' WHERE sessionid='.\zbx_dbstr((string) $user_data['sessionid']).
-					' AND userid='.\zbx_dbstr((string) $target_userid)
-			);
+			self::deleteSession((string) $user_data['sessionid'], $target_userid);
 
 			return $fail(_('O usuario alvo esta com acesso a interface desabilitado (GUI access disabled).'));
 		}
 
 		$now = time();
 		$logid = self::logStart($actor_userid, $actor_username, $target_userid, (string) $target['username'],
-			$origin_sessionid, $readonly
+			$origin_sessionid, $readonly, $reason, $encrypt
 		);
 
 		if ($logid <= 0) {
 			// Nao conseguimos registrar - desfaz a sessao recem-criada e aborta.
-			\DBexecute(
-				'DELETE FROM sessions'.
-				' WHERE sessionid='.\zbx_dbstr((string) $user_data['sessionid']).
-					' AND userid='.\zbx_dbstr((string) $target_userid)
-			);
+			self::deleteSession((string) $user_data['sessionid'], $target_userid);
 
 			return $fail(_('Falha ao gravar o log de auditoria. A impersonacao foi cancelada.'));
 		}
@@ -668,6 +880,10 @@ class ImpersonateHelper {
 			'auth' => $user_data['sessionid']
 		];
 
+		self::debug(sprintf('start: %s -> %s (logid=%d, readonly=%d, ttl=%d)',
+			$actor_username, (string) $target['username'], $logid, $readonly ? 1 : 0, $ttl
+		));
+
 		return ['success' => true, 'error' => '', 'target' => $target];
 	}
 
@@ -689,6 +905,7 @@ class ImpersonateHelper {
 		$origin_sessionid = self::getOriginSessionid((int) $state['logid']);
 
 		if ($origin_sessionid === '') {
+			self::debug('stop: origin_sessionid indisponivel (logid='.(int) $state['logid'].')');
 			self::logEnd((int) $state['logid'], $reason);
 			self::clearState();
 			\CSessionHelper::unset(['sessionid']);
@@ -706,14 +923,10 @@ class ImpersonateHelper {
 		));
 
 		// Derruba a sessao criada para a impersonacao, seja qual for o desfecho.
-		$impersonated_sessionid = (string) \CWebUser::$data['sessionid'];
+		$impersonated_sessionid = (string) (\CWebUser::$data['sessionid'] ?? '');
 
 		if ($impersonated_sessionid !== '' && $impersonated_sessionid !== $origin_sessionid) {
-			\DBexecute(
-				'DELETE FROM sessions'.
-				' WHERE sessionid='.\zbx_dbstr($impersonated_sessionid).
-					' AND userid='.\zbx_dbstr((string) $state['target_userid'])
-			);
+			self::deleteSession($impersonated_sessionid, (int) $state['target_userid']);
 		}
 
 		self::ensureSchema();
@@ -732,6 +945,56 @@ class ImpersonateHelper {
 		return true;
 	}
 
+	/**
+	 * Encerra a impersonacao SEM restaurar a sessao de origem, derrubando as duas.
+	 *
+	 * Usado no logout nativo do Zabbix ("Sign out"), que continua visivel na sidebar
+	 * durante a impersonacao. Restaurar a sessao de origem aqui nao serve: o
+	 * controller de logout iria em seguida derrubar justamente a sessao que
+	 * acabamos de restaurar, usando um token que ja nao existe. Entao aqui o
+	 * caminho e: fechar o evento no log, apagar a sessao Super Admin de origem
+	 * (para nao sobrar token orfao no banco) e deixar o logout seguir normalmente
+	 * sobre a sessao do alvo.
+	 */
+	public static function abandon(string $reason = self::END_LOGOUT): void {
+		$state = self::getState();
+
+		if ($state === null) {
+			return;
+		}
+
+		$origin_sessionid = self::getOriginSessionid((int) $state['logid']);
+
+		if ($origin_sessionid !== '') {
+			self::deleteSession($origin_sessionid, (int) $state['origin_userid']);
+		}
+
+		self::ensureSchema();
+		self::logEnd((int) $state['logid'], $reason);
+		self::clearState();
+
+		self::debug(sprintf('abandon: logid=%d reason=%s (logout durante impersonacao)',
+			(int) $state['logid'], $reason
+		));
+	}
+
+	/**
+	 * Apaga uma linha de `sessions`. Erros sao silenciados: nao ha o que fazer
+	 * a respeito e um trigger_error viraria banner vermelho na tela.
+	 */
+	private static function deleteSession(string $sessionid, int $userid): void {
+		if ($sessionid === '' || $userid <= 0) {
+			return;
+		}
+
+		\DBexecute(
+			'DELETE FROM sessions'.
+			' WHERE sessionid='.\zbx_dbstr($sessionid).
+				' AND userid='.\zbx_dbstr((string) $userid),
+			1
+		);
+	}
+
 	// -----------------------------------------------------------------------
 	// Auditoria
 	// -----------------------------------------------------------------------
@@ -739,49 +1002,61 @@ class ImpersonateHelper {
 	/**
 	 * Grava o inicio da impersonacao.
 	 *
-	 * O par SELECT MAX(logid)+1 / INSERT roda dentro de \DBstart()/\DBend() porque
-	 * duas impersonacoes simultaneas gerariam o mesmo logid - e um logid duplicado
-	 * faria o logEnd() de um Super Admin fechar o evento do outro.
+	 * Sobre a alocacao do logid: o caminho canonico do Zabbix seria
+	 * DB::reserveIds(), mas ele chama DB::getSchema($table) e a tabela deste
+	 * modulo nao existe em include/schema.inc.php - a chamada lancaria
+	 * DBException. Por isso a alocacao e MAX(logid)+1 COM retry: a insercao usa
+	 * \DBexecute($sql, 1) para nao gerar banner de erro, e uma colisao de chave
+	 * primaria (duas impersonacoes iniciadas no mesmo instante) simplesmente
+	 * tenta o proximo id. Sem o retry, uma das duas perdia o logid e o logEnd()
+	 * de um Super Admin fechava o evento do outro.
 	 *
 	 * @return int  logid gravado, ou 0 se a auditoria falhou.
 	 */
 	private static function logStart(int $actor_userid, string $actor_username, int $target_userid,
-			string $target_username, string $origin_sessionid, bool $readonly): int {
+			string $target_username, string $origin_sessionid, bool $readonly, string $reason,
+			bool $encrypt): int {
 
 		$user_agent = array_key_exists('HTTP_USER_AGENT', $_SERVER)
 			? substr((string) $_SERVER['HTTP_USER_AGENT'], 0, 255)
 			: '';
 
-		\DBstart();
+		$stored_sessionid = $encrypt ? self::protectSessionid($origin_sessionid) : $origin_sessionid;
 
-		$row = \DBfetch(\DBselect('SELECT MAX(logid) AS maxid FROM '.self::LOG_TABLE.' FOR UPDATE'));
-		$logid = ($row && $row['maxid'] !== null) ? ((int) $row['maxid'] + 1) : 1;
+		for ($attempt = 0; $attempt < 5; $attempt++) {
+			$row = \DBfetch(\DBselect('SELECT MAX(logid) AS maxid FROM '.self::LOG_TABLE));
+			$logid = ($row && $row['maxid'] !== null) ? ((int) $row['maxid'] + 1 + $attempt) : (1 + $attempt);
 
-		$inserted = \DBexecute(
-			'INSERT INTO '.self::LOG_TABLE.
-			' (logid,actor_userid,actor_username,target_userid,target_username,origin_sessionid,clientip,'.
-				'user_agent,readonly,started,ended,end_reason)'.
-			' VALUES ('.
-				\zbx_dbstr((string) $logid).','.
-				\zbx_dbstr((string) $actor_userid).','.
-				\zbx_dbstr($actor_username).','.
-				\zbx_dbstr((string) $target_userid).','.
-				\zbx_dbstr($target_username).','.
-				\zbx_dbstr($origin_sessionid).','.
-				\zbx_dbstr(\CWebUser::getIp()).','.
-				\zbx_dbstr($user_agent).','.
-				($readonly ? '1' : '0').','.
-				\zbx_dbstr((string) time()).','.
-				'0,'.
-				\zbx_dbstr('').
-			')'
-		);
+			$inserted = \DBexecute(
+				'INSERT INTO '.self::LOG_TABLE.
+				' (logid,actor_userid,actor_username,target_userid,target_username,origin_sessionid,clientip,'.
+					'user_agent,reason,readonly,started,ended,end_reason)'.
+				' VALUES ('.
+					\zbx_dbstr((string) $logid).','.
+					\zbx_dbstr((string) $actor_userid).','.
+					\zbx_dbstr($actor_username).','.
+					\zbx_dbstr((string) $target_userid).','.
+					\zbx_dbstr($target_username).','.
+					\zbx_dbstr($stored_sessionid).','.
+					\zbx_dbstr(\CWebUser::getIp()).','.
+					\zbx_dbstr($user_agent).','.
+					\zbx_dbstr($reason).','.
+					($readonly ? '1' : '0').','.
+					\zbx_dbstr((string) time()).','.
+					'0,'.
+					\zbx_dbstr('').
+				')',
+				1
+			);
 
-		if (!\DBend((bool) $inserted)) {
-			return 0;
+			if ($inserted) {
+				return $logid;
+			}
+
+			self::debug(sprintf('logStart: colisao/erro no logid %d (tentativa %d)', $logid, $attempt + 1));
 		}
 
-		return $logid;
+		return 0;
 	}
 
 	/**
@@ -798,7 +1073,7 @@ class ImpersonateHelper {
 			' WHERE logid='.\zbx_dbstr((string) $logid)
 		));
 
-		return $row ? (string) $row['origin_sessionid'] : '';
+		return $row ? self::revealSessionid((string) $row['origin_sessionid']) : '';
 	}
 
 	/**
@@ -809,27 +1084,73 @@ class ImpersonateHelper {
 			return;
 		}
 
+		// Segundo argumento = 1: suprime a mensagem de erro do Zabbix. logEnd() e
+		// chamado de dentro do getState(), que roda no init() do modulo em TODA
+		// request - se a tabela nao existir (modulo recem-instalado, banco sem
+		// privilegio de CREATE), um trigger_error aqui viraria banner vermelho em
+		// cima de qualquer tela do frontend.
 		\DBexecute(
 			'UPDATE '.self::LOG_TABLE.
 			' SET ended='.\zbx_dbstr((string) time()).','.
 				'end_reason='.\zbx_dbstr($reason).','.
 				'origin_sessionid='.\zbx_dbstr('').
 			' WHERE logid='.\zbx_dbstr((string) $logid).
-				' AND ended=0'
+				' AND ended=0',
+			1
 		);
+	}
+
+	/**
+	 * Fecha eventos que ficaram abertos indefinidamente.
+	 *
+	 * Um crash do PHP, um kill do frontend ou um navegador fechado no meio da
+	 * impersonacao deixam a linha com ended=0 e - pior - o token de origem
+	 * guardado. Chamado pela tela de listagem, que e por onde o Super Admin passa.
+	 *
+	 * @return int  quantidade de eventos fechados.
+	 */
+	public static function closeStaleLogRows(int $stale_after): int {
+		if ($stale_after <= 0 || !self::ensureSchema()) {
+			return 0;
+		}
+
+		$cutoff = time() - $stale_after;
+
+		$rows = [];
+		$result = \DBselect(
+			'SELECT logid FROM '.self::LOG_TABLE.
+			' WHERE ended=0 AND started<'.\zbx_dbstr((string) $cutoff)
+		);
+
+		while ($row = \DBfetch($result)) {
+			$rows[] = (int) $row['logid'];
+		}
+
+		foreach ($rows as $logid) {
+			self::logEnd($logid, self::END_STALE);
+		}
+
+		if ($rows) {
+			self::debug('closeStaleLogRows: '.count($rows).' evento(s) fechado(s) como stale');
+		}
+
+		return count($rows);
 	}
 
 	/**
 	 * Ultimos registros do log de impersonacao.
 	 */
 	public static function getLog(int $limit = 200, string $search = '', int $target_userid = 0): array {
-		self::ensureSchema();
+		if (!self::ensureSchema()) {
+			return [];
+		}
 
 		$sql = 'SELECT * FROM '.self::LOG_TABLE.' WHERE 1=1';
 
 		if ($search !== '') {
-			$like = \zbx_dbstr('%'.$search.'%');
-			$sql .= ' AND (actor_username LIKE '.$like.' OR target_username LIKE '.$like.' OR clientip LIKE '.$like.')';
+			$like = \zbx_dbstr('%'.self::escapeLike($search).'%');
+			$sql .= ' AND (actor_username LIKE '.$like.' OR target_username LIKE '.$like.
+				' OR clientip LIKE '.$like.' OR reason LIKE '.$like.')';
 		}
 
 		if ($target_userid > 0) {
@@ -842,10 +1163,96 @@ class ImpersonateHelper {
 		$result = \DBselect($sql, $limit);
 
 		while ($row = \DBfetch($result)) {
+			// O token de origem NUNCA sai deste helper.
+			unset($row['origin_sessionid']);
 			$rows[] = $row;
 		}
 
 		return $rows;
+	}
+
+	// -----------------------------------------------------------------------
+	// Protecao do sessionid de origem em repouso
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Cifra o sessionid de origem antes de gravar no banco.
+	 *
+	 * Enquanto a impersonacao esta ativa, esse valor e um token de sessao Super
+	 * Admin VALIDO. Em texto claro, qualquer SELECT no banco (DBA, backup, SQLi
+	 * em outro ponto do frontend) resultaria em sequestro de sessao privilegiada.
+	 *
+	 * A chave e derivada do segredo de sessao do proprio frontend via
+	 * CEncryptHelper::sign() - assim nao ha segredo novo para gerenciar, e um dump
+	 * do banco sozinho nao basta para decifrar.
+	 */
+	private static function protectSessionid(string $sessionid): string {
+		if ($sessionid === '' || !function_exists('openssl_encrypt')) {
+			return $sessionid;
+		}
+
+		$key = self::cryptoKey();
+
+		if ($key === '') {
+			return $sessionid;
+		}
+
+		try {
+			$iv = random_bytes(16);
+			$cipher = openssl_encrypt($sessionid, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv);
+		}
+		catch (\Throwable $e) {
+			self::debug('protectSessionid: '.$e->getMessage());
+
+			return $sessionid;
+		}
+
+		return $cipher === false ? $sessionid : self::ENC_PREFIX.base64_encode($iv.$cipher);
+	}
+
+	/**
+	 * Decifra o valor lido do banco. Valores sem o prefixo sao de instalacoes
+	 * anteriores a 1.2.0 (texto claro) e passam direto.
+	 */
+	private static function revealSessionid(string $stored): string {
+		if ($stored === '' || strncmp($stored, self::ENC_PREFIX, strlen(self::ENC_PREFIX)) !== 0) {
+			return $stored;
+		}
+
+		$raw = base64_decode(substr($stored, strlen(self::ENC_PREFIX)), true);
+
+		if ($raw === false || strlen($raw) <= 16 || !function_exists('openssl_decrypt')) {
+			return '';
+		}
+
+		$key = self::cryptoKey();
+
+		if ($key === '') {
+			return '';
+		}
+
+		$plain = openssl_decrypt(substr($raw, 16), 'aes-256-cbc', $key, OPENSSL_RAW_DATA, substr($raw, 0, 16));
+
+		if ($plain === false) {
+			self::debug('revealSessionid: falha ao decifrar (chave de sessao do frontend mudou?)');
+
+			return '';
+		}
+
+		return $plain;
+	}
+
+	private static function cryptoKey(): string {
+		try {
+			$material = \CEncryptHelper::sign(self::LOG_TABLE.'|origin_sessionid');
+		}
+		catch (\Throwable $e) {
+			self::debug('cryptoKey: '.$e->getMessage());
+
+			return '';
+		}
+
+		return (is_string($material) && $material !== '') ? hash('sha256', $material, true) : '';
 	}
 
 	// -----------------------------------------------------------------------
@@ -855,18 +1262,27 @@ class ImpersonateHelper {
 	/**
 	 * A action informada e considerada escrita?
 	 *
-	 * Duas regras, nesta ordem:
+	 * Modo "blacklist" (default):
+	 *   1. Lista explicita (WRITE_ACTIONS) - cobre nomes sem verbo reconhecivel
+	 *      (popup.scriptexec) e paginas legadas .php, onde CLegacyAction::getAction()
+	 *      devolve "jsrpc.php" e o ultimo segmento e sempre "php".
+	 *   2. Qualquer SEGMENTO do nome batendo em WRITE_SUFFIXES. Olhar so o ultimo
+	 *      segmento deixaria passar popup.massupdate.host / popup.massupdate.item,
+	 *      que sao justamente as acoes de escrita em massa.
+	 *   Navegacao continua livre: *.view, *.list, *.edit, *.get, *.check.
 	 *
-	 * 1. Lista explicita (WRITE_ACTIONS) - cobre nomes sem verbo reconhecivel
-	 *    (popup.scriptexec) e paginas legadas .php, onde CLegacyAction::getAction()
-	 *    devolve "jsrpc.php" e o ultimo segmento e sempre "php".
-	 * 2. Qualquer SEGMENTO do nome batendo em WRITE_SUFFIXES. Olhar so o ultimo
-	 *    segmento deixaria passar popup.massupdate.host / popup.massupdate.item,
-	 *    que sao justamente as acoes de escrita em massa.
+	 * Modo "whitelist" (default-deny): a action so passa se algum segmento estiver
+	 * em READ_SUFFIXES. Mais seguro contra verbos novos que apareçam num upgrade do
+	 * Zabbix, mas pode recusar leitura legitima - o que distorce a tela e atrapalha
+	 * o troubleshooting. Use quando a trava importar mais que a fidelidade da visao.
 	 *
-	 * Navegacao continua livre: *.view, *.list, *.edit, *.get, *.check.
+	 * @param string   $action
+	 * @param string[] $extra_suffixes  Verbos adicionais tratados como escrita.
+	 * @param string   $mode            'blacklist' | 'whitelist'
 	 */
-	public static function isWriteAction(string $action, array $extra_suffixes = []): bool {
+	public static function isWriteAction(string $action, array $extra_suffixes = [],
+			string $mode = 'blacklist'): bool {
+
 		if ($action === '') {
 			return false;
 		}
@@ -877,14 +1293,26 @@ class ImpersonateHelper {
 			return true;
 		}
 
-		// Demais paginas legadas (.php) sao leitura: chart*.php, history.php, image.php...
+		$segments = explode('.', $action);
+
+		if ($mode === 'whitelist') {
+			// Demais paginas legadas (.php) sao leitura: chart*.php, history.php, image.php...
+			foreach ($segments as $segment) {
+				if (in_array($segment, self::READ_SUFFIXES, true)) {
+					return false;
+				}
+			}
+
+			return true;
+		}
+
 		if (substr($action, -4) === '.php') {
 			return false;
 		}
 
 		$suffixes = array_merge(self::WRITE_SUFFIXES, array_map('strtolower', $extra_suffixes));
 
-		foreach (explode('.', $action) as $segment) {
+		foreach ($segments as $segment) {
 			if (in_array($segment, $suffixes, true)) {
 				return true;
 			}
@@ -892,6 +1320,10 @@ class ImpersonateHelper {
 
 		return false;
 	}
+
+	// -----------------------------------------------------------------------
+	// Natureza da request
+	// -----------------------------------------------------------------------
 
 	/**
 	 * A request atual e AJAX/JSON?
@@ -924,9 +1356,59 @@ class ImpersonateHelper {
 		], true);
 	}
 
+	/**
+	 * A request atual e um carregamento de PAGINA completa?
+	 *
+	 * Motivo de existir: cada widget de dashboard e uma request propria
+	 * (widget.problems.view, widget.svggraph.view, ...) que passa pelo init() do
+	 * modulo, e o layout.json serializa as mensagens do CMessageHelper na
+	 * resposta. Sem este filtro, o banner "IMPERSONACAO ATIVA" aparecia DENTRO de
+	 * cada widget da tela, com contagens regressivas diferentes em cada um, e
+	 * voltava a cada refresh automatico do dashboard.
+	 *
+	 * O nome da action e o discriminador confiavel aqui: nem todo fetch de widget
+	 * manda X-Requested-With, entao isNonHtmlRequest() sozinho nao resolve.
+	 */
+	public static function isPageRequest(): bool {
+		if (self::isNonHtmlRequest()) {
+			return false;
+		}
+
+		$action = strtolower((string) ($_REQUEST['action'] ?? ''));
+
+		if ($action === '') {
+			// index.php, zabbix.php sem action - pagina de verdade.
+			return true;
+		}
+
+		foreach (['widget.', 'dashboard.widget.', 'popup.', 'menu.'] as $prefix) {
+			if (strncmp($action, $prefix, strlen($prefix)) === 0) {
+				return false;
+			}
+		}
+
+		foreach (['.refresh', '.get', '.check', '.rank', '.progress'] as $suffix) {
+			if (substr($action, -strlen($suffix)) === $suffix) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	// -----------------------------------------------------------------------
 	// Formatacao
 	// -----------------------------------------------------------------------
+
+	/**
+	 * Neutraliza os wildcards de LIKE no texto digitado pelo usuario.
+	 *
+	 * zbx_dbstr() cuida da injecao, mas nao de "%" e "_": sem isso, buscar por
+	 * "_" no log retorna todas as linhas.
+	 */
+	public static function escapeLike(string $term): string {
+		return str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $term);
+	}
 
 	public static function userTypeLabel(?int $type): string {
 		switch ((int) $type) {

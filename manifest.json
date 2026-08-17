@@ -2,17 +2,26 @@
     "manifest_version": 2,
     "id": "zbx-impersonate",
     "name": "Impersonate",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "namespace": "ZbxImpersonate",
     "author": "Rafael M. A. Leão Ereno - MALE",
-    "description": "Permite que Super Admins assumam a sessao de outros usuarios do Zabbix (login as) com trava de somente-leitura, expiracao automatica e log de auditoria.",
+    "description": "Permite que Super Admins assumam a sessão de usuários User e Admin do Zabbix (login as) para troubleshooting, com visão idêntica à do usuário, trava de somente-leitura, expiração automática e log de auditoria.",
     "url": "https://github.com/leaoereno/module-zbx-inpersonate",
     "icon": "",
     "config": {
         "session_ttl": 1800,
         "readonly": 1,
+        "readonly_mode": "blacklist",
+        "readonly_extra_suffixes": [],
         "block_super_admin_target": 1,
-        "require_module_access": 1
+        "require_module_access": 1,
+        "banner": 1,
+        "menu_exit_item": 1,
+        "stop_on_logout": 1,
+        "encrypt_origin_sessionid": 1,
+        "require_reason": 0,
+        "stale_after": 86400,
+        "debug": 0
     },
     "actions": {
         "zbx.impersonate.list": {

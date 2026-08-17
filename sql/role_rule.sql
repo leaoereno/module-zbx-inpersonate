@@ -6,6 +6,11 @@
 --
 -- IMPORTANTE: este arquivo NAO altera permissoes.
 --
+-- SINTAXE: as consultas abaixo usam MySQL/MariaDB (SHOW TABLES, FROM_UNIXTIME,
+-- UNIX_TIMESTAMP, CONCAT). O modulo em si funciona nos dois bancos a partir da
+-- 1.2.0; num frontend em PostgreSQL adapte para to_timestamp() / extract(epoch)
+-- e troque SHOW TABLES por uma consulta a information_schema.tables.
+--
 -- No Zabbix 7.0 o acesso a um modulo e controlado por role, na tela
 -- Users -> User roles -> <role> -> Access to modules. Inserir linhas em
 -- role_rule na mao e arriscado: o Zabbix aloca role_ruleid pela tabela
@@ -66,6 +71,7 @@ SELECT logid,
        actor_username         AS quem,
        target_username        AS alvo,
        clientip,
+       reason                 AS justificativa,
        CASE readonly WHEN 1 THEN 'somente leitura' ELSE 'leitura e escrita' END AS modo,
        CASE WHEN ended = 0 THEN 'em andamento'
             ELSE CONCAT(ended - started, 's') END AS duracao,
@@ -74,12 +80,28 @@ FROM module_impersonate_log
 WHERE started > UNIX_TIMESTAMP(NOW() - INTERVAL 30 DAY)
 ORDER BY started DESC;
 
--- Sessoes de impersonacao que ficaram abertas (nao deveriam existir com
--- session_ttl configurado; se aparecerem, investigue)
+-- Sessoes de impersonacao que ficaram abertas.
+--
+-- A partir da 1.2.0 a tela de listagem fecha sozinha as que passaram de
+-- `stale_after` (default 24h) com end_reason='stale'. Se aparecerem linhas
+-- recentes aqui, e impersonacao realmente em andamento.
 SELECT logid, actor_username, target_username, FROM_UNIXTIME(started) AS inicio
 FROM module_impersonate_log
 WHERE ended = 0
 ORDER BY started DESC;
+
+-- O sessionid de origem NAO deve estar legivel em nenhuma linha:
+--   - linhas encerradas   -> campo vazio (logEnd apaga)
+--   - linhas em andamento -> prefixo "enc:" (AES-256-CBC, chave derivada do
+--                            segredo de sessao do frontend)
+-- Uma linha em andamento com 32 caracteres hex crus e de instalacao anterior
+-- a 1.2.0 ou esta com encrypt_origin_sessionid=0 no manifest.
+SELECT logid,
+       CASE WHEN origin_sessionid = ''             THEN 'vazio (encerrada)'
+            WHEN origin_sessionid LIKE 'enc:%'     THEN 'cifrado'
+            ELSE 'TEXTO CLARO - revise a configuracao' END AS estado_do_token
+FROM module_impersonate_log
+ORDER BY logid DESC;
 
 -- ---------------------------------------------------------------------
 -- 4. Desinstalacao (descomente para rodar)

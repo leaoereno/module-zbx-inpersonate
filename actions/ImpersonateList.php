@@ -37,6 +37,11 @@ class ImpersonateList extends CController {
 
 		$config = $this->getModuleConfig();
 
+		// Eventos que ficaram com ended=0 (crash do frontend, navegador fechado no
+		// meio da impersonacao) sao fechados aqui - esta e a tela por onde o Super
+		// Admin passa, e cada linha aberta guarda o token da sessao de origem.
+		$stale_closed = ImpersonateHelper::closeStaleLogRows((int) $config['stale_after']);
+
 		$sql = 'SELECT u.userid,u.username,u.name,u.surname,u.roleid,u.userdirectoryid,u.attempt_failed,'.
 				'r.name AS role_name,r.type AS role_type'.
 			' FROM users u'.
@@ -44,7 +49,8 @@ class ImpersonateList extends CController {
 			' WHERE 1=1';
 
 		if ($search !== '') {
-			$like = \zbx_dbstr('%'.$search.'%');
+			// escapeLike(): sem isso um "%" ou "_" digitado virava wildcard.
+			$like = \zbx_dbstr('%'.ImpersonateHelper::escapeLike($search).'%');
 			$sql .= ' AND (u.username LIKE '.$like.' OR u.name LIKE '.$like.' OR u.surname LIKE '.$like.')';
 		}
 
@@ -103,6 +109,7 @@ class ImpersonateList extends CController {
 			'stats'                => $stats,
 			'config'               => $config,
 			'roles_missing_access' => $roles_missing_access,
+			'stale_closed'         => $stale_closed,
 			'recent'               => ImpersonateHelper::getLog(10)
 		]));
 	}
@@ -114,16 +121,24 @@ class ImpersonateList extends CController {
 
 		$ttl = ImpersonateHelper::DEFAULT_TTL;
 		$readonly = 1;
+		$readonly_mode = 'blacklist';
 		$block_sa = 1;
 		$require_access = 1;
+		$banner = 1;
+		$require_reason = 0;
+		$stale_after = 86400;
 		$moduleid = '';
 		$version = '?';
 
 		if ($module !== null) {
 			$ttl = (int) $module->getOption('session_ttl', ImpersonateHelper::DEFAULT_TTL);
 			$readonly = (int) $module->getOption('readonly', 1);
+			$readonly_mode = (string) $module->getOption('readonly_mode', 'blacklist');
 			$block_sa = (int) $module->getOption('block_super_admin_target', 1);
 			$require_access = (int) $module->getOption('require_module_access', 1);
+			$banner = (int) $module->getOption('banner', 1);
+			$require_reason = (int) $module->getOption('require_reason', 0);
+			$stale_after = (int) $module->getOption('stale_after', 86400);
 			$moduleid = $module->getModuleId();
 			$version = $module->getVersion();
 		}
@@ -131,8 +146,12 @@ class ImpersonateList extends CController {
 		return [
 			'session_ttl'              => $ttl,
 			'readonly'                 => $readonly,
+			'readonly_mode'            => $readonly_mode,
 			'block_super_admin_target' => $block_sa,
 			'require_module_access'    => $require_access,
+			'banner'                   => $banner,
+			'require_reason'           => $require_reason,
+			'stale_after'              => $stale_after,
 			'moduleid'                 => $moduleid,
 			'version'                  => $version,
 			// Atras do F5 os dois frontends respondem alternadamente. Sem saber QUAL
@@ -224,7 +243,13 @@ class ImpersonateList extends CController {
 					$module_access[$roleid] = ImpersonateHelper::roleHasModuleAccess($roleid, $config['moduleid']);
 				}
 
-				if (!$module_access[$roleid]) {
+				// null = a API de roles falhou. Nao e a mesma coisa que "nao tem
+				// acesso", e mostrar o motivo errado manda o Super Admin caçar
+				// permissao que nao esta faltando.
+				if ($module_access[$roleid] === null) {
+					$reason = 'Nao foi possivel verificar o acesso da role ao modulo';
+				}
+				elseif ($module_access[$roleid] === false) {
 					$reason = 'Role sem acesso ao modulo Impersonate';
 					$roles_missing_access[(string) $user['role_name']] = true;
 				}

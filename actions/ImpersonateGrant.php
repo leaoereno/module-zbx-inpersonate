@@ -21,6 +21,7 @@ class ImpersonateGrant extends CController {
 
 	protected function checkInput(): bool {
 		$ret = $this->validateInput([
+			'dry_run'       => 'in 0,1',
 			'submit_action' => 'string'
 		]);
 
@@ -62,7 +63,11 @@ class ImpersonateGrant extends CController {
 			return;
 		}
 
-		$result = ImpersonateHelper::grantModuleAccessToAllRoles($module->getModuleId());
+		// dry_run=1: nao altera nada, so devolve QUAIS roles seriam alteradas, para o
+		// front confirmar nominalmente antes de mexer em permissoes.
+		$dry_run = (int) $this->getInput('dry_run', 0) === 1;
+
+		$result = ImpersonateHelper::grantModuleAccessToAllRoles($module->getModuleId(), [], $dry_run);
 
 		if ($result['error'] !== '') {
 			$this->respond(['success' => false, 'error' => $result['error']]);
@@ -71,12 +76,14 @@ class ImpersonateGrant extends CController {
 		}
 
 		$this->respond([
-			'success'  => true,
-			'error'    => '',
-			'granted'  => $result['granted'],
-			'already'  => $result['already'],
-			'readonly' => $result['readonly'],
-			'failed'   => $result['failed']
+			'success'     => true,
+			'error'       => '',
+			'dry_run'     => $dry_run,
+			'would_grant' => array_column($result['would_grant'], 'name'),
+			'granted'     => $result['granted'],
+			'already'     => $result['already'],
+			'readonly'    => $result['readonly'],
+			'failed'      => $result['failed']
 		]);
 	}
 

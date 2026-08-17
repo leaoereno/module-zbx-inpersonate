@@ -23,6 +23,7 @@ class ImpersonateStart extends CController {
 	protected function checkInput(): bool {
 		$ret = $this->validateInput([
 			'userid'        => 'required|db users.userid',
+			'reason'        => 'string',
 			'submit_action' => 'string'
 		]);
 
@@ -53,14 +54,23 @@ class ImpersonateStart extends CController {
 			return;
 		}
 
-		$ttl = (int) $module->getOption('session_ttl', ImpersonateHelper::DEFAULT_TTL);
-		$readonly = (int) $module->getOption('readonly', 1) === 1;
-		$block_sa = (int) $module->getOption('block_super_admin_target', 1) === 1;
-		$require_access = (int) $module->getOption('require_module_access', 1) === 1;
+		$reason = trim((string) $this->getInput('reason', ''));
 
-		$result = ImpersonateHelper::start((int) $this->getInput('userid'), $ttl, $readonly, $block_sa,
-			$require_access, $module->getModuleId()
-		);
+		if ((int) $module->getOption('require_reason', 0) === 1 && $reason === '') {
+			$this->respond(false, 'Informe o motivo da impersonacao (exigido pela politica do modulo).');
+
+			return;
+		}
+
+		$result = ImpersonateHelper::start((int) $this->getInput('userid'), [
+			'ttl'                   => (int) $module->getOption('session_ttl', ImpersonateHelper::DEFAULT_TTL),
+			'readonly'              => (int) $module->getOption('readonly', 1) === 1,
+			'block_super_admin'     => (int) $module->getOption('block_super_admin_target', 1) === 1,
+			'require_module_access' => (int) $module->getOption('require_module_access', 1) === 1,
+			'encrypt'               => (int) $module->getOption('encrypt_origin_sessionid', 1) === 1,
+			'moduleid'              => $module->getModuleId(),
+			'reason'                => $reason
+		]);
 
 		if (!$result['success']) {
 			$this->respond(false, (string) $result['error']);

@@ -14,6 +14,9 @@ use Modules\ZbxImpersonate\Helper\ImpersonateHelper;
 
 class Module extends CModule {
 
+	/** Tamanho maximo do username no rotulo do menu antes de truncar. */
+	private const MENU_LABEL_MAX = 18;
+
 	/**
 	 * Chamado a cada request enquanto o modulo estiver habilitado.
 	 *
@@ -23,6 +26,8 @@ class Module extends CModule {
 	 */
 	public function init(): void {
 		try {
+			ImpersonateHelper::setDebug((int) $this->getOption('debug', 0) === 1);
+
 			$state = ImpersonateHelper::getState();
 
 			if ($state !== null) {
@@ -33,7 +38,9 @@ class Module extends CModule {
 			}
 		}
 		catch (\Throwable $e) {
-			// Nunca derrubar o frontend inteiro por causa do modulo.
+			// Nunca derrubar o frontend inteiro por causa do modulo - mas tambem
+			// nao engolir o motivo em silencio (option "debug" no manifest).
+			ImpersonateHelper::debug('init: '.$e->getMessage().' @ '.$e->getFile().':'.$e->getLine());
 		}
 	}
 
@@ -50,7 +57,7 @@ class Module extends CModule {
 		try {
 			$state = ImpersonateHelper::getState();
 
-			if ($state === null || (int) $state['readonly'] !== 1) {
+			if ($state === null) {
 				return;
 			}
 
@@ -61,22 +68,46 @@ class Module extends CModule {
 				return;
 			}
 
-			$extra = $this->getOption('readonly_extra_suffixes', []);
+			// "Sign out" nativo continua na sidebar durante a impersonacao. Se o
+			// usuario sair por ali, o evento tem que ser fechado no log e a sessao
+			// Super Admin de origem apagada - senao sobra linha com ended=0 para
+			// sempre e um token privilegiado orfao no banco.
+			if ((int) $this->getOption('stop_on_logout', 1) === 1
+					&& ImpersonateHelper::isLogoutRequest($action_name)) {
+				ImpersonateHelper::abandon(ImpersonateHelper::END_LOGOUT);
 
-			if (!ImpersonateHelper::isWriteAction($action_name, is_array($extra) ? $extra : [])) {
 				return;
 			}
 
+			if ((int) $state['readonly'] !== 1) {
+				return;
+			}
+
+			$extra = $this->getOption('readonly_extra_suffixes', []);
+			$mode = (string) $this->getOption('readonly_mode', 'blacklist');
+
+			if (!ImpersonateHelper::isWriteAction($action_name, is_array($extra) ? $extra : [], $mode)) {
+				return;
+			}
+
+			// Detalhe completo vai para o log; a tela recebe algo curto - a mensagem
+			// longa da versao anterior ficava enorme dentro de widgets e popups.
+			ImpersonateHelper::debug(sprintf(
+				'readonly deny: action=%s target=%s origin=%s mode=%s',
+				$action_name, (string) $state['target_username'], (string) $state['origin_username'], $mode
+			));
+
 			$deny_message = sprintf(
-				'Bloqueado pelo modulo Impersonate: a sessao esta em modo somente-leitura (impersonando "%s"'.
-					' a partir de "%s"). A acao "%s" altera dados e foi recusada.',
+				'Impersonate: sessao em modo somente leitura (navegando como "%s"). A acao "%s" altera dados'.
+					' e foi recusada.',
 				(string) $state['target_username'],
-				(string) $state['origin_username'],
 				$action_name
 			);
 		}
 		catch (\Throwable $e) {
 			// Falha interna do guard nao pode virar tela branca nem bloquear navegacao.
+			ImpersonateHelper::debug('onBeforeAction: '.$e->getMessage());
+
 			return;
 		}
 
@@ -115,6 +146,27 @@ class Module extends CModule {
 			return;
 		}
 
+		$this->addBanner($state, $expires);
+		$this->addExitMenuItem($state);
+	}
+
+	/**
+	 * Banner de aviso no topo da pagina.
+	 *
+	 * Restrito a carregamento de PAGINA (ImpersonateHelper::isPageRequest()). Cada
+	 * widget de dashboard e uma request propria que tambem passa por aqui, e o
+	 * layout.json serializa as mensagens do CMessageHelper na resposta - por isso a
+	 * versao anterior repetia o banner dentro de todo widget da tela, com contagens
+	 * regressivas diferentes, e ele reaparecia a cada refresh automatico.
+	 *
+	 * Para uma tela 100% identica a do usuario (troubleshooting pixel a pixel),
+	 * basta "banner": 0 no manifest - o item de menu continua sendo a saida.
+	 */
+	private function addBanner(array $state, int $expires): void {
+		if ((int) $this->getOption('banner', 1) !== 1 || !ImpersonateHelper::isPageRequest()) {
+			return;
+		}
+
 		$remaining = $expires > 0 ? $expires - time() : 0;
 
 		\CMessageHelper::addWarning(sprintf(
@@ -124,19 +176,37 @@ class Module extends CModule {
 			((int) $state['readonly'] === 1) ? 'somente leitura' : 'leitura e escrita',
 			$expires > 0 ? ' Expira em '.ImpersonateHelper::formatDuration($remaining).'.' : ''
 		));
+	}
+
+	/**
+	 * Item "Sair da impersonacao" no topo do menu lateral.
+	 *
+	 * Adicionado em TODA request (nao so nas de pagina): e a unica saida garantida
+	 * e nao depende de JS.
+	 */
+	private function addExitMenuItem(array $state): void {
+		if ((int) $this->getOption('menu_exit_item', 1) !== 1) {
+			return;
+		}
 
 		$menu = \APP::Component()->get('menu.main');
+		$username = (string) $state['target_username'];
 
-		$label = sprintf('Sair da impersonacao (%s)', (string) $state['target_username']);
+		// Username longo (e-mail, tipicamente) estoura a largura da sidebar.
+		$short = mb_strlen($username) > self::MENU_LABEL_MAX
+			? mb_substr($username, 0, self::MENU_LABEL_MAX - 1).'...'
+			: $username;
 
 		// _('Dashboards') e nao a string crua: o rotulo do menu nativo vem traduzido
 		// para o idioma do usuario. Se nao casar, insertBefore() cai na posicao 0,
 		// que tambem e o topo - entao o item aparece no lugar certo de qualquer jeito.
 		$menu->insertBefore(_('Dashboards'),
-			(new CMenuItem($label))
+			(new CMenuItem(sprintf('Sair da impersonacao (%s)', $short)))
 				->setAction('zbx.impersonate.stop')
-				->setIcon('zi-user')
-				->setTitle('Encerrar a impersonacao e voltar para '.(string) $state['origin_username'])
+				->setIcon('zi-sign-out')
+				->setTitle(sprintf('Encerrar a impersonacao de "%s" e voltar para "%s"',
+					$username, (string) $state['origin_username']
+				))
 		);
 	}
 

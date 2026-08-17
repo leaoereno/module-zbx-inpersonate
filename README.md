@@ -66,6 +66,10 @@ Referências verificadas contra o código-fonte oficial da branch `release/7.0`:
 | Alvo precisa enxergar o módulo | Sem isso o guard e o botão de sair não existiriam durante a impersonação | `require_module_access` |
 | `guest` nunca é alvo | — | — |
 | Anti-CSRF no start | Exige `POST` + header `X-Requested-With: XMLHttpRequest` (header custom não atravessa origem sem preflight CORS) | — |
+| Token de origem cifrado em repouso | `origin_sessionid` é gravado com AES-256-CBC, chave derivada do segredo de sessão do frontend. Enquanto a impersonação está ativa esse valor é uma sessão Super Admin **válida** | `encrypt_origin_sessionid` |
+| Logout nativo encerra a impersonação | "Sign out" continua na sidebar; se usado, o evento é fechado no log e a sessão Super Admin de origem é apagada | `stop_on_logout` |
+| Eventos órfãos são fechados | Impersonação sem encerramento (browser fechado, frontend reiniciado) retém o token — a tela de listagem fecha as antigas | `stale_after` |
+| Justificativa obrigatória | Exige um motivo digitado, gravado em `module_impersonate_log.reason` | `require_reason` |
 
 Configuração fica no bloco `config` do `manifest.json`:
 
@@ -73,12 +77,65 @@ Configuração fica no bloco `config` do `manifest.json`:
 "config": {
     "session_ttl": 1800,
     "readonly": 1,
+    "readonly_mode": "blacklist",
+    "readonly_extra_suffixes": [],
     "block_super_admin_target": 1,
-    "require_module_access": 1
+    "require_module_access": 1,
+    "banner": 1,
+    "menu_exit_item": 1,
+    "stop_on_logout": 1,
+    "encrypt_origin_sessionid": 1,
+    "require_reason": 0,
+    "stale_after": 86400,
+    "debug": 0
 }
 ```
 
+| Opção | Default | O que faz |
+|---|---|---|
+| `session_ttl` | `1800` | Expiração da impersonação, em segundos. `0` = nunca |
+| `readonly` | `1` | Recusa actions de escrita durante a impersonação |
+| `readonly_mode` | `blacklist` | `blacklist` = bloqueia verbos conhecidos de escrita. `whitelist` = default-deny |
+| `readonly_extra_suffixes` | `[]` | Verbos extras tratados como escrita, sem tocar no código |
+| `block_super_admin_target` | `1` | Impede impersonar outro Super Admin (User e Admin seguem liberados) |
+| `require_module_access` | `1` | Só impersona alvo cuja role enxerga este módulo |
+| `banner` | `1` | Aviso amarelo no topo da página. `0` deixa a tela **pixel a pixel** igual à do usuário |
+| `menu_exit_item` | `1` | Item "Sair da impersonação" no topo da sidebar |
+| `stop_on_logout` | `1` | Fecha a impersonação quando o usuário usa o "Sign out" nativo |
+| `encrypt_origin_sessionid` | `1` | Cifra o token da sessão de origem no banco |
+| `require_reason` | `0` | Exige justificativa antes de iniciar |
+| `stale_after` | `86400` | Segundos até um evento aberto ser fechado como `stale` |
+| `debug` | `0` | Manda o motivo real de cada falha interna para o `error_log` do PHP |
+
 Depois de editar o manifest: **Administration → Modules → Scan directory** para o Zabbix reler.
+
+### Fidelidade da visão (troubleshooting)
+
+A sessão passa a ser **integralmente** a do alvo — `lang`, `theme`, `timezone`, `refresh`,
+`rows_per_page`, permissões e `role_rule`. A tela renderizada é a que o usuário vê, incluindo os
+erros dele:
+
+```
+Cluster - UP TIME    → No permissions to referred object or it does not exist!
+Graph (classic)      → Invalid parameter "Item": cannot be empty.
+```
+
+Isso **não é defeito do módulo**: são widgets referenciando itens/hosts que o alvo não tem
+permissão de ler, e normalmente é exatamente o achado que se procurava.
+
+O módulo interfere na tela em dois pontos, ambos desligáveis:
+
+- o **banner** de aviso no topo (`banner: 0`);
+- o **item de menu** de saída na sidebar (`menu_exit_item: 0`).
+
+Desligar os dois dá uma tela 100% idêntica — mas então a única saída é `session_ttl` expirar ou
+acessar `zabbix.php?action=zbx.impersonate.stop` na mão. Recomendado: manter
+`menu_exit_item: 1` e usar `banner: 0` quando o layout precisar ser exato.
+
+> O banner é emitido **somente em carregamento de página completa**. Cada widget de dashboard é
+> uma request própria que passa pelo `init()` do módulo, e o `layout.json` serializa as mensagens
+> do `CMessageHelper` na resposta — até a v1.1.1 o aviso aparecia **dentro de cada widget** da
+> tela, com contagens regressivas diferentes em cada um.
 
 ### Como o modo somente-leitura decide o que bloquear
 
@@ -93,9 +150,11 @@ popup.scriptexec, popup.acknowledge.create, jsrpc.php, popup.php
 **2. Qualquer segmento** do nome da action batendo em:
 
 ```
-create, update, delete, massupdate, massdelete, massadd, enable, disable,
-execute, execute_now, import, rename, copy, clear, reset, unlink,
-activate, deactivate, provision, unprovision, acknowledge, save, scriptexec
+create, update, delete, massupdate, massdelete, massadd, massenable,
+massdisable, massclear, massunlink, enable, disable, execute, execute_now,
+import, rename, copy, clear, reset, unlink, activate, deactivate, provision,
+unprovision, acknowledge, save, scriptexec, send, mute, unmute, pause,
+resume, sync, restore, apply, upload
 ```
 
 É **qualquer segmento**, não só o último — de propósito. `popup.massupdate.host` termina em
@@ -112,7 +171,25 @@ manifest:
 ```
 
 Ao bloquear, o módulo lança uma exceção que o `ZBase` transforma em tela de erro (ou em
-`{"error":{"title":...}}` para actions de layout JSON), com o motivo explícito.
+`{"error":{"title":...}}` para actions de layout JSON). A mensagem na tela é curta de propósito —
+dentro de um widget ou popup um texto longo fica ilegível. O detalhe completo (action, alvo,
+origem, modo) vai para o `error_log` com `debug: 1`.
+
+#### Blacklist ou whitelist
+
+Blacklist é o default, e é uma escolha consciente: ela **nunca recusa uma leitura por engano**, e
+recusar leitura distorceria justamente a tela que o módulo existe para reproduzir. O preço é que
+um verbo de escrita novo, introduzido num upgrade do Zabbix, passa até ser adicionado à lista.
+
+Quem precisa da trava mais forte que da fidelidade da visão usa:
+
+```json
+"readonly_mode": "whitelist"
+```
+
+Aí vale o inverso — **default-deny**: a action só passa se algum segmento do nome estiver em
+`view, list, edit, get, check, popup, php, menu, search, export, print, widget, refresh, sort,
+filter, select, test, validate, compare, download, stats`.
 
 ---
 
@@ -144,6 +221,13 @@ Ao bloquear, o módulo lança uma exceção que o `ZBase` transforma em tela de 
    link simples que sempre funciona.
 9. **Auditoria obrigatória.** Sem `module_impersonate_log` gravável, a impersonação é recusada —
    o log é também onde o sessionid de origem fica guardado.
+10. **O token de origem existe no banco enquanto a impersonação está aberta.** Ele é cifrado
+    (`encrypt_origin_sessionid: 1`), mas a chave é derivada de um segredo que o próprio frontend
+    tem em mãos: isso protege contra dump de banco e SQLi, **não** contra quem já comprometeu o
+    servidor de frontend. Mantenha `session_ttl` curto.
+11. **Se a role do alvo perder acesso ao módulo no meio da impersonação**, o `Module.php` deixa de
+    carregar: o guard de somente-leitura e o botão de sair desaparecem até a sessão expirar pelo
+    `autologout` do Zabbix.
 
 ---
 
@@ -240,7 +324,8 @@ module-zbx-inpersonate/
 │   ├── ImpersonateLog.php            # zbx.impersonate.log       layout.htmlpage
 │   └── ImpersonateGrant.php          # zbx.impersonate.grant     layout.json
 ├── helper/
-│   └── ImpersonateHelper.php         # troca de sessão, políticas, auditoria, schema
+│   ├── ImpersonateHelper.php         # troca de sessão, políticas, auditoria, schema
+│   └── ImpersonateAssets.php         # CSS inline compartilhado pelas views (escopado + tema)
 ├── views/
 │   ├── zbx.impersonate.list.php
 │   ├── zbx.impersonate.profile.php   # echo json_encode(...)
@@ -250,8 +335,14 @@ module-zbx-inpersonate/
 │   └── zbx.impersonate.grant.php     # echo json_encode(...)
 ├── sql/role_rule.sql                 # diagnóstico (só SELECTs) + desinstalação
 ├── install.sh
+├── REVIEW.md                         # revisão de código que originou a 1.2.0
 └── README.md
 ```
+
+> Todo o CSS das views mora em `ImpersonateAssets::css()`. Até a v1.1.1 o mesmo bloco `<style>`
+> era repetido nas três views (já com divergências entre elas) e declarava as variáveis em
+> `:root` e o reset em `*` — ou seja, vazava para o documento inteiro do Zabbix. Agora as regras
+> são escopadas por `.im-wrap` / `.modal-backdrop` e a paleta acompanha o tema do usuário.
 
 > O autoloader do Zabbix (`CAutoloader::loadClass`) faz `strtolower()` em cada segmento de
 > namespace ao montar o caminho — por isso `Modules\ZbxImpersonate\Actions\X` mora em
@@ -268,9 +359,10 @@ CREATE TABLE module_impersonate_log (
     actor_username   VARCHAR(100)    NOT NULL DEFAULT '',
     target_userid    BIGINT UNSIGNED NOT NULL,
     target_username  VARCHAR(100)    NOT NULL DEFAULT '',
-    origin_sessionid VARCHAR(32)     NOT NULL DEFAULT '',
+    origin_sessionid VARCHAR(255)    NOT NULL DEFAULT '',
     clientip         VARCHAR(45)     NOT NULL DEFAULT '',
     user_agent       VARCHAR(255)    NOT NULL DEFAULT '',
+    reason           VARCHAR(255)    NOT NULL DEFAULT '',
     readonly         INT             NOT NULL DEFAULT 1,
     started          INT             NOT NULL DEFAULT 0,
     ended            INT             NOT NULL DEFAULT 0,
@@ -282,15 +374,32 @@ CREATE TABLE module_impersonate_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-`end_reason`: `manual` · `expired` · `invalid` · vazio enquanto a sessão está aberta.
-`origin_sessionid` só tem valor enquanto a impersonação está aberta; é zerado no encerramento.
+`reason`: justificativa digitada por quem impersonou (`require_reason`).
+`end_reason`: `manual` · `expired` · `invalid` · `logout` · `stale` · vazio enquanto aberta.
 
-`logid` usa `MAX(logid)+1` dentro de `\DBstart()`/`\DBend()` — é tabela própria do módulo, não
-passa pela tabela `ids` do Zabbix, e a transação evita que duas impersonações simultâneas gerem
-o mesmo id (o que faria o encerramento de um Super Admin fechar o evento do outro).
+`origin_sessionid` só tem valor enquanto a impersonação está aberta e é zerado no encerramento.
+Com `encrypt_origin_sessionid: 1` (default) ele é gravado como `enc:<base64(iv+ciphertext)>`,
+AES-256-CBC, chave derivada via `CEncryptHelper::sign()` do segredo de sessão do frontend — um
+dump do banco sozinho não basta para decifrar. Linhas em texto claro são de instalações
+anteriores à 1.2.0 e continuam sendo lidas normalmente.
 
-DDL específico de MySQL/MariaDB. Em frontend sobre PostgreSQL o `CREATE TABLE` falha e o módulo
-recusa impersonar com mensagem explícita — adapte o DDL em `ImpersonateHelper::ensureSchema()`.
+### Alocação do `logid`
+
+`MAX(logid)+1` **com retry**. O caminho canônico do Zabbix seria `DB::reserveIds()`, mas ele chama
+`DB::getSchema($table)` e esta tabela não existe em `include/schema.inc.php` — a chamada lançaria
+`DBException`. Então o `INSERT` usa `\DBexecute($sql, 1)` (sem banner de erro) e, se colidir na
+chave primária porque duas impersonações começaram no mesmo instante, tenta o id seguinte. Até a
+v1.1.1 era `SELECT MAX(logid) ... FOR UPDATE` dentro de `DBstart()`, que não trava a *gap* e podia
+gerar id duplicado — fazendo o encerramento de um Super Admin fechar o evento do outro.
+
+### MySQL e PostgreSQL
+
+A partir da 1.2.0 o DDL é ramificado por `$DB['TYPE']`: `BIGINT UNSIGNED`/`ENGINE=`/`KEY` inline
+no MySQL, `BIGINT`/`CREATE INDEX` separado no PostgreSQL. A detecção de coluna existente usa
+`information_schema.columns`, presente nos dois, com o predicado de schema variando
+(`DATABASE()` vs `current_schema()`).
+
+As consultas de `sql/role_rule.sql` continuam em sintaxe MySQL — veja a nota no topo do arquivo.
 
 Consultas úteis estão em `sql/role_rule.sql` (só `SELECT`s — o arquivo não altera permissão
 nenhuma).
@@ -374,5 +483,65 @@ O módulo não cria nenhuma linha em `role_rule` — não há o que limpar lá.
 
 ## Ambiente alvo
 
-Zabbix 7.0 LTS · PHP 8.x · MariaDB 10.11 · frontends atrás de F5 BIG-IP ·
-módulos em `/usr/share/zabbix/modules/`
+Zabbix 7.0 LTS · PHP 8.x · MariaDB 10.11 (PostgreSQL suportado a partir da 1.2.0) ·
+frontends atrás de F5 BIG-IP · módulos em `/usr/share/zabbix/modules/`
+
+---
+
+## Changelog
+
+### 1.2.0
+
+**Corrigido**
+
+- **Banner replicado dentro de cada widget do dashboard.** Cada widget é uma request própria que
+  passa pelo `init()` do módulo, e o `layout.json` serializa as mensagens do `CMessageHelper` na
+  resposta. O aviso agora só é emitido em carregamento de página completa
+  (`ImpersonateHelper::isPageRequest()`).
+- **`readonly_extra_suffixes` era opção morta** — lida no `Module.php`, ausente do `config` do
+  `manifest.json`, portanto sempre `[]`.
+- **"Sign out" nativo não encerrava a impersonação**: a linha do log ficava com `ended=0` para
+  sempre, a sessão Super Admin de origem sobrava órfã no banco e o token continuava lá. Coberto
+  tanto na action moderna (`userprofile.logout`) quanto no caminho legado `index.php?reconnect=1`.
+- **`logid` podia colidir.** `SELECT MAX(logid) ... FOR UPDATE` não trava a *gap*; duas
+  impersonações simultâneas geravam o mesmo id e o encerramento de um Super Admin fechava o evento
+  do outro. Agora há retry na chave primária.
+- **`%` e `_` digitados na busca** (lista de usuários e log) viravam wildcard de `LIKE`.
+- **`roleHasModuleAccess()` era fail-open**: qualquer falha da API de roles devolvia "tem acesso".
+  Agora devolve indeterminado e a impersonação é recusada com mensagem própria.
+- **`:root` e `*` vazando** das views para o documento inteiro do Zabbix; CSS duplicado em três
+  views, já divergente entre elas.
+- **`logEnd()` podia gerar banner vermelho** em qualquer tela quando a tabela de log não existia,
+  já que é chamado de dentro do `getState()`, que roda a cada request.
+- Acentuação dos textos de interface.
+
+**Adicionado**
+
+- **`origin_sessionid` cifrado em repouso** (AES-256-CBC, chave derivada do segredo de sessão do
+  frontend). Antes era um token Super Admin válido em texto claro no banco.
+- **Suporte a PostgreSQL** — o DDL anterior (`BIGINT UNSIGNED`, `ENGINE=InnoDB`, `KEY` inline,
+  `TABLE_SCHEMA=DATABASE()`) só funcionava em MySQL/MariaDB.
+- **`readonly_mode: "whitelist"`** — default-deny, para quem prefere a trava mais forte à
+  fidelidade da visão. Blacklist segue como default, com 14 verbos novos na lista.
+- **`banner` e `menu_exit_item`** desligáveis, para uma tela pixel a pixel igual à do usuário.
+- **`require_reason`** — justificativa obrigatória, gravada em `module_impersonate_log.reason` e
+  exibida no log e no histórico do perfil.
+- **`stale_after`** — a tela de listagem fecha eventos que ficaram abertos (`end_reason=stale`),
+  liberando o token retido.
+- **`debug`** — manda o motivo real de cada falha interna para o `error_log` em vez de engoli-la.
+- **Prévia antes de liberar roles**: o botão faz um dry-run e lista nominalmente quais roles serão
+  alteradas antes de pedir confirmação.
+- Tema escuro nas telas do módulo; ícone `zi-sign-out` e truncagem do username no menu.
+
+### 1.1.1
+
+Escape de `<role>` no alerta; versão e hostname na tela.
+
+### 1.1.0
+
+Botão para liberar o módulo em todas as roles; menu dentro da seção nativa *Users*;
+`ALTER TABLE` compatível com MySQL.
+
+### 1.0.0
+
+Primeira versão.

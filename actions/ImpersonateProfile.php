@@ -166,6 +166,9 @@ class ImpersonateProfile extends CController {
 						'actor_username' => (string) $h['actor_username'],
 						'started'        => ImpersonateHelper::formatTs((int) $h['started']),
 						'ended'          => ImpersonateHelper::formatTs((int) $h['ended']),
+						// reason = justificativa informada pelo Super Admin.
+						// end_reason = como a sessao terminou (manual/expired/logout/...).
+						'reason'         => (string) ($h['reason'] ?? ''),
 						'end_reason'     => (string) $h['end_reason'],
 						'readonly'       => (int) $h['readonly'] === 1
 					];
